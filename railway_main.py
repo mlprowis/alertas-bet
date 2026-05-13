@@ -718,6 +718,103 @@ def webhook_test():
         logger.error(f"Error en webhook_test: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/webhook/best-match', methods=['POST', 'GET'])
+def webhook_best_match():
+    """Endpoint para obtener y enviar el MEJOR partido en vivo AHORA"""
+    try:
+        logger.info("🏆 Buscando el MEJOR partido en vivo ahora...")
+
+        # Obtener partidos en vivo
+        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+
+        if not matches_api:
+            return jsonify({
+                "status": "no_matches",
+                "message": "No hay partidos en vivo en este momento"
+            }), 200
+
+        # Procesar todos y encontrar el mejor (value más alto)
+        best_match = None
+        best_value = -1
+
+        for match_api in matches_api:
+            try:
+                match_data = FootballDataAPI.procesar_partido_real(match_api)
+                if not match_data:
+                    continue
+
+                metricas = SportAnalyzer.calcular_metricas(match_data)
+                poisson = PoissonModel.evaluar_partido(
+                    metricas["xg_total"],
+                    metricas["tiros_totales"],
+                    match_data["minute"],
+                    match_data["odds_over_1"]
+                )
+
+                if poisson.value > best_value:
+                    best_value = poisson.value
+                    score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
+                    best_match = {
+                        "match_data": match_data,
+                        "metricas": metricas,
+                        "poisson": poisson,
+                        "score_alerta": score_alerta,
+                        "level": level
+                    }
+            except Exception as e:
+                logger.error(f"Error procesando partido: {e}")
+                continue
+
+        # Si encontró un buen partido, enviarlo
+        if best_match and best_value >= 5.0:  # Threshold bajo para mostrar
+            logger.info(f"🏆 MEJOR PARTIDO: {best_match['match_data']['match_name']} (Value: {best_value}%)")
+
+            if bot:
+                alert_data = AlertData(
+                    partido=best_match['match_data']["match_name"],
+                    liga=best_match['match_data']["league"],
+                    minuto=best_match['match_data']["minute"],
+                    marcador=best_match['match_data']["score"],
+                    level=best_match["level"],
+                    score_final=best_match["score_alerta"],
+                    momentum=best_match['metricas']["momentum"],
+                    xg_total=best_match['metricas']["xg_total"],
+                    tiros=best_match['metricas']["tiros_totales"],
+                    tiros_puerta=best_match['metricas'].get("tiros_puerta", 0),
+                    dominancia=best_match['metricas']["dominancia"],
+                    eficiencia=best_match['metricas']["eficiencia"],
+                    lambda_final=best_match['poisson'].lambda_final,
+                    p_gol=best_match['poisson'].p_gol,
+                    p_mercado=best_match['poisson'].p_mercado,
+                    value=best_match['poisson'].value,
+                    recomendacion=best_match['poisson'].recomendacion,
+                    timestamp=datetime.now().isoformat()
+                )
+                asyncio.run(enviar_alerta_telegram(alert_data))
+                logger.info("✓ Mejor partido enviado a Telegram")
+
+            return jsonify({
+                "status": "ok",
+                "message": "Mejor partido enviado a Telegram",
+                "match": best_match['match_data']["match_name"],
+                "league": best_match['match_data']["league"],
+                "score": best_match['match_data']["score"],
+                "minute": best_match['match_data']["minute"],
+                "value": best_match['poisson'].value,
+                "recommendation": best_match['poisson'].recomendacion
+            }), 200
+        else:
+            return jsonify({
+                "status": "low_value",
+                "message": "No hay partidos con value >= 5.0 en vivo ahora",
+                "best_value": best_value if best_match else None,
+                "matches_analyzed": len(matches_api)
+            }), 200
+
+    except Exception as e:
+        logger.error(f"Error en webhook_best_match: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/webhook/simulated', methods=['POST', 'GET'])
 def webhook_simulated():
     """Endpoint para disparar un partido simulado manual"""
@@ -751,7 +848,8 @@ def status():
             "GET /status": "Estado completo",
             "POST /webhook/test": "Test del sistema",
             "POST /webhook/match": "Procesar partido",
-            "POST /webhook/simulated": "Partido simulado manual"
+            "POST /webhook/simulated": "Partido simulado manual",
+            "POST /webhook/best-match": "Mejor partido EN VIVO ahora"
         }
     }), 200
 
