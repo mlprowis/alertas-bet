@@ -952,8 +952,8 @@ def webhook_best_match():
                 logger.error(f"Error procesando partido: {e}")
                 continue
 
-        # Si encontró un buen partido, enviarlo
-        if best_match and best_value >= 5.0:  # Threshold bajo para mostrar
+        # Si encontró un partido, enviarlo (threshold bajo)
+        if best_match and best_value >= 2.0:  # Threshold bajo para mostrar
             logger.info(f"🏆 MEJOR PARTIDO: {best_match['match_data']['match_name']} (Value: {best_value}%)")
 
             if bot:
@@ -993,7 +993,7 @@ def webhook_best_match():
         else:
             return jsonify({
                 "status": "low_value",
-                "message": "No hay partidos con value >= 5.0 en vivo ahora",
+                "message": f"Mejor value encontrado: {best_value:.1f}% (threshold: 2.0%)" if best_value >= 0 else "No hay partidos en vivo",
                 "best_value": best_value if best_match else None,
                 "matches_analyzed": len(matches_api)
             }), 200
