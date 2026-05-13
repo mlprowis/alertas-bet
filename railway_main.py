@@ -21,6 +21,7 @@ from flask import Flask, request, jsonify
 from telegram import Bot
 from telegram.error import TelegramError
 from apscheduler.schedulers.background import BackgroundScheduler
+import requests
 
 # ============ LOGGING ============
 logging.basicConfig(
@@ -480,7 +481,7 @@ def procesar_partidos_en_vivo():
         # Procesar cada partido
         for match_api in matches_api:
             try:
-                match_data = FootballDataAPI.procesar_partido_real(match_api)
+                match_data = LiveFootballAPI.procesar_partido_real(match_api)
 
                 if not match_data:
                     continue
@@ -743,7 +744,7 @@ def webhook_best_match():
 
         for match_api in matches_api:
             try:
-                match_data = FootballDataAPI.procesar_partido_real(match_api)
+                match_data = LiveFootballAPI.procesar_partido_real(match_api)
                 if not match_data:
                     continue
 
