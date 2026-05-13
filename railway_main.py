@@ -506,7 +506,13 @@ def procesar_partidos_en_vivo():
         # Procesar cada partido
         for match_api in matches_api:
             try:
-                match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                # Si ya es un partido simulado completo, usarlo directamente
+                if "match_name" in match_api and "odds_over_1" in match_api:
+                    match_data = match_api
+                    logger.debug("📊 Usando partido simulado/procesado")
+                else:
+                    # Si es un partido de API, procesarlo
+                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
 
                 if not match_data:
                     continue
@@ -769,7 +775,13 @@ def webhook_best_match():
 
         for match_api in matches_api:
             try:
-                match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                # Si ya es un partido simulado completo, usarlo directamente
+                if "match_name" in match_api and "odds_over_1" in match_api:
+                    match_data = match_api
+                else:
+                    # Si es un partido de API, procesarlo
+                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
+
                 if not match_data:
                     continue
 
