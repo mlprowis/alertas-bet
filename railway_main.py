@@ -854,9 +854,99 @@ def status():
             "POST /webhook/test": "Test del sistema",
             "POST /webhook/match": "Procesar partido",
             "POST /webhook/simulated": "Partido simulado manual",
-            "POST /webhook/best-match": "Mejor partido EN VIVO ahora"
+            "POST /webhook/best-match": "Mejor partido EN VIVO ahora",
+            "GET /webhook/diagnose": "Diagnosticar RapidAPI"
         }
     }), 200
+
+@app.route('/webhook/diagnose', methods=['GET'])
+def webhook_diagnose():
+    """Endpoint para diagnosticar problemas con RapidAPI"""
+    try:
+        logger.info("🧪 Iniciando diagnóstico de RapidAPI...")
+
+        results = {
+            "rapidapi_configured": bool(RAPIDAPI_KEY),
+            "rapidapi_key_sample": f"{RAPIDAPI_KEY[:20]}...***" if RAPIDAPI_KEY else "NO CONFIGURADO",
+            "rapidapi_host": RAPIDAPI_HOST,
+            "endpoints_tested": {}
+        }
+
+        # Probar endpoints
+        endpoints = ["/matches", "/live", "/liveMatches", "/fixtures"]
+
+        for endpoint in endpoints:
+            url = f"https://{RAPIDAPI_HOST}{endpoint}"
+            logger.info(f"🔍 Probando: {url}")
+
+            try:
+                headers = {
+                    "X-RapidAPI-Key": RAPIDAPI_KEY,
+                    "X-RapidAPI-Host": RAPIDAPI_HOST
+                }
+
+                response = requests.get(url, headers=headers, timeout=10)
+
+                results["endpoints_tested"][endpoint] = {
+                    "status_code": response.status_code,
+                    "success": response.status_code == 200
+                }
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    # Analizar estructura
+                    if isinstance(data, dict):
+                        matches_data = data.get("data", data.get("matches", []))
+                        results["endpoints_tested"][endpoint]["data_type"] = "dict"
+                        results["endpoints_tested"][endpoint]["match_count"] = len(matches_data) if isinstance(matches_data, list) else 0
+
+                        if isinstance(matches_data, list) and matches_data:
+                            results["endpoints_tested"][endpoint]["sample_match"] = {
+                                "keys": list(matches_data[0].keys()),
+                                "first_item": str(matches_data[0])[:200]
+                            }
+
+                    elif isinstance(data, list):
+                        results["endpoints_tested"][endpoint]["data_type"] = "list"
+                        results["endpoints_tested"][endpoint]["match_count"] = len(data)
+
+                        if data:
+                            results["endpoints_tested"][endpoint]["sample_match"] = {
+                                "keys": list(data[0].keys()) if isinstance(data[0], dict) else "N/A",
+                                "first_item": str(data[0])[:200]
+                            }
+
+                logger.info(f"✅ {endpoint} retornó {response.status_code}")
+
+            except requests.exceptions.Timeout:
+                results["endpoints_tested"][endpoint] = {
+                    "status_code": 0,
+                    "error": "Timeout (10s)"
+                }
+            except Exception as e:
+                results["endpoints_tested"][endpoint] = {
+                    "status_code": 0,
+                    "error": str(e)[:100]
+                }
+
+        # Encontrar endpoint que funciona
+        working_endpoint = None
+        for ep, result in results["endpoints_tested"].items():
+            if result.get("success"):
+                working_endpoint = ep
+                break
+
+        results["working_endpoint"] = working_endpoint
+        results["diagnostic_complete"] = True
+
+        logger.info(f"🧪 Diagnóstico completado. Endpoint funcional: {working_endpoint}")
+
+        return jsonify(results), 200
+
+    except Exception as e:
+        logger.error(f"Error en diagnóstico: {e}", exc_info=True)
+        return jsonify({"error": str(e), "diagnostic_complete": False}), 500
 
 # ============ ERROR HANDLERS ============
 @app.errorhandler(404)
