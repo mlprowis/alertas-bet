@@ -1,0 +1,174 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     ALERTAS BET - QUICK REFERENCE CARD                       ║
+║                      Integración FlashScore + Railway                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+📍 ESTADO ACTUAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ FlashScore Integration: Implementado
+✅ RapidAPI Fallback: Implementado
+✅ SOLO Datos Reales: Confirmado (sin simulados)
+⏳ Railway Deployment: Esperando validación
+
+🚀 PRÓXIMOS PASOS (EN ORDEN)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1️⃣  Obtener URL de Railway
+    → Ir a https://railway.app → alertas-bet → Deployments
+    → Copiar: https://alertas-bet-XXXXX.up.railway.app
+
+2️⃣  Hacer push (si no está hecho)
+    → git push
+
+3️⃣  Esperar deployment (2-5 minutos)
+    → https://railway.app → Ver status: Success
+
+4️⃣  Test Health Check
+    → curl https://YOUR_RAILWAY_URL/
+    → Debe retornar: {"status": "healthy"}
+
+5️⃣  Test Mejor Partido EN VIVO
+    → curl https://YOUR_RAILWAY_URL/webhook/best-match
+    → Retorna el mejor partido EN VIVO ahora
+
+6️⃣  Test Diagnóstico
+    → curl https://YOUR_RAILWAY_URL/webhook/diagnose
+    → Muestra estado de las APIs
+
+7️⃣  Revisar Logs
+    → Railway → Logs → Buscar "FlashScore" o "RapidAPI"
+
+8️⃣  Esperar Alerta Telegram
+    → Si hay partidos con value >= 5.0, deberías recibir mensaje
+
+📌 ARQUITECTURA (DATOS REALES SOLO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Obtener Partidos:
+  procesar_partidos_en_vivo()
+    ├─ FlashScore API (PRIMARIO)
+    │  ├─ /api/flashscore/v2/matches/live
+    │  ├─ /api/flashscore/v2/matches
+    │  ├─ /api/flashscore/v2/fixtures/live
+    │  └─ /api/flashscore/matches/live
+    │
+    └─ RapidAPI (FALLBACK si FlashScore vacío)
+       ├─ /matches
+       ├─ /matches?live=true
+       ├─ /fixtures
+       └─ /live
+
+Procesar:
+  Poisson Model
+    ├─ Cálculo de xG y métricas
+    ├─ Lambda = f(xG, tiros, minuto)
+    ├─ P(Gol) = 1 - e^(-λ)
+    ├─ Value = (P_modelo - P_mercado) / P_mercado
+    └─ [Si Value >= 8.0] → Alerta Telegram
+
+🧪 TESTS RÁPIDOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Health Check:
+  curl YOUR_URL/
+
+Test Mejor Partido:
+  curl YOUR_URL/webhook/best-match
+
+Test Diagnóstico:
+  curl YOUR_URL/webhook/diagnose
+
+Test Sistema:
+  curl -X POST YOUR_URL/webhook/test
+
+Ver Status:
+  curl YOUR_URL/status
+
+⚡ CASOS ESPERADOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Caso 1: Hay partidos EN VIVO ✅
+  GET /webhook/best-match →
+    {
+      "status": "ok",
+      "message": "Mejor partido enviado a Telegram",
+      "match": "Barcelona vs Real Madrid",
+      "value": 12.5
+    }
+
+Caso 2: No hay partidos EN VIVO (normal en horario bajo) ℹ️
+  GET /webhook/best-match →
+    {
+      "status": "low_value",
+      "message": "No hay partidos con value >= 5.0",
+      "matches_analyzed": 0
+    }
+
+Caso 3: ERROR - RAPIDAPI_KEY no configurada ❌
+  Logs: "❌ RAPIDAPI_KEY no está configurado"
+  Solución: Verificar Railway variables
+
+Caso 4: ERROR - Timeout en APIs ⏱️
+  Logs: "⏱️ Timeout (10s)"
+  Solución: Esperar y reintentar
+
+Caso 5: FlashScore vacío → Usa RapidAPI ℹ️
+  Logs: "ℹ️ FlashScore sin partidos, intentando RapidAPI..."
+  Estado: NORMAL, sistema funcionando correctamente
+
+⚠️ PROBLEMAS COMUNES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Problema                  → Solución
+──────────────────────────────────────────────────────────
+403 Forbidden            → RAPIDAPI_KEY no válida
+404 Not Found            → URL incorrecta o Procfile mal
+Timeout (15s)            → Problema de red, esperar
+RAPIDAPI_KEY error       → Verificar variables en Railway
+No Telegram              → Verificar TELEGRAM_TOKEN/CHAT_ID
+Sin partidos (siempre)   → Ejecutar test_flashscore.py
+Logs vacíos              → Esperar 5 minutos a siguiente ciclo
+
+📂 ARCHIVOS CLAVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+railway_main.py
+  ├─ FlashScoreAPI (línea 370)
+  ├─ LiveFootballAPI (línea 495)
+  ├─ procesar_partidos_en_vivo() (línea 618)
+  └─ webhook_best_match() (línea 888)
+
+VERIFICATION_PLAN.md
+  → Plan completo de verificación
+
+STATUS_SUMMARY.md
+  → Resumen detallado de estado
+
+test_flashscore.py
+  → Script de diagnóstico FlashScore
+
+test_rapidapi.py
+  → Script de diagnóstico RapidAPI
+
+🎯 OBJETIVO FINAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Bot detecta partidos EN VIVO REALES (solo de APIs)
+✅ Analiza con modelo Poisson
+✅ Si encuentra oportunidad (value >= 5.0), envía alerta Telegram
+✅ Corre automáticamente cada 5 minutos
+✅ Cobertura global (FlashScore + RapidAPI 2100+ ligas)
+✅ SOLO datos reales, sin simulaciones
+
+📞 SOPORTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Revisar /webhook/diagnose
+2. Ver Logs en Railway Console
+3. Ejecutar python3 test_flashscore.py o test_rapidapi.py
+4. Verificar variables en Railway: RAPIDAPI_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+
+═══════════════════════════════════════════════════════════════════════════════
+Última actualización: 2026-05-13
+Estado: 🟡 READY FOR TESTING IN RAILWAY
+═══════════════════════════════════════════════════════════════════════════════
