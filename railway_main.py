@@ -367,79 +367,85 @@ class SimulatedMatches:
             "odds_over_1": odds_over_1
         }
 
-# ============ SOFASCORE API - Web Scraping de datos EN VIVO (SIN RATE LIMITS) ============
-class SofaScoreAPI:
-    """Integración con SofaScore mediante web scraping (Sin rate limits, datos reales)"""
+# ============ FOOTBALL-DATA.ORG API - Datos EN VIVO reales (PLAN GRATUITO GENEROSO) ============
+class FootballDataAPI:
+    """Integración con football-data.org (API oficial, plan gratuito confiable)"""
 
-    BASE_URL = "https://www.sofascore.com"
+    BASE_URL = "https://api.football-data.org/v4"
+    API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "")
 
     @staticmethod
     def inicializar():
-        """No requiere inicialización"""
-        pass
+        """Inicializa la API"""
+        if not FootballDataAPI.API_KEY:
+            logger.warning("⚠️ FOOTBALL_DATA_API_KEY no configurado - usar plan gratuito o obtener key en football-data.org")
 
     @staticmethod
     def obtener_partidos_en_vivo() -> list:
-        """Obtiene partidos en vivo de SofaScore mediante web scraping (SIN RATE LIMITS)"""
+        """Obtiene partidos en vivo de football-data.org"""
         try:
-            # SofaScore API endpoint para partidos en vivo (sin rate limits)
-            url = "https://api.sofascore.com/api/v1/sport/football/events/live"
+            # Endpoint de partidos en vivo
+            url = f"{FootballDataAPI.BASE_URL}/matches?status=LIVE"
 
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
+            headers = {}
+            if FootballDataAPI.API_KEY:
+                headers["X-Auth-Token"] = FootballDataAPI.API_KEY
 
-            logger.info(f"🔍 Obteniendo partidos EN VIVO de SofaScore...")
+            logger.info(f"🔍 Obteniendo partidos EN VIVO de football-data.org...")
             response = requests.get(url, headers=headers, timeout=10)
 
             logger.info(f"   Status: {response.status_code}")
 
             if response.status_code == 200:
                 data = response.json()
-                events = data.get("events", [])
+                matches = data.get("matches", [])
 
-                if events and len(events) > 0:
-                    logger.info(f"✅ SofaScore: {len(events)} partidos EN VIVO encontrados")
-                    return events
+                if matches and len(matches) > 0:
+                    logger.info(f"✅ football-data.org: {len(matches)} partidos EN VIVO encontrados")
+                    return matches
                 else:
-                    logger.info(f"⚠️ SofaScore: Sin partidos en vivo en este momento")
+                    logger.info(f"⚠️ football-data.org: Sin partidos en vivo en este momento")
                     return []
             else:
-                logger.warning(f"⚠️ SofaScore: Status {response.status_code}")
+                logger.warning(f"⚠️ football-data.org: Status {response.status_code}")
+                if response.status_code == 429:
+                    logger.warning("   Rate limited - esperar")
                 return []
 
         except Exception as e:
-            logger.error(f"Error en SofaScore: {str(e)[:100]}")
+            logger.error(f"Error en football-data.org: {str(e)[:100]}")
             return []
 
     @staticmethod
     def procesar_partido_real(match_data: dict) -> Dict[str, Any]:
-        """Convierte datos de SofaScore al formato de AlertasBet"""
+        """Convierte datos de football-data.org al formato de AlertasBet"""
         try:
             # Validar que sea dict
             if not isinstance(match_data, dict):
                 return None
 
-            # Parsear formato de SofaScore
+            # Parsear formato de football-data.org
             home_team = match_data.get("homeTeam", {}).get("name", "Team A")
             away_team = match_data.get("awayTeam", {}).get("name", "Team B")
             match_name = f"{home_team} vs {away_team}"
 
             # Goles del partido
-            home_goals = match_data.get("homeScore", {}).get("current", 0) if isinstance(match_data.get("homeScore"), dict) else match_data.get("homeScore", 0)
-            away_goals = match_data.get("awayScore", {}).get("current", 0) if isinstance(match_data.get("awayScore"), dict) else match_data.get("awayScore", 0)
+            score_data = match_data.get("score", {})
+            home_goals = score_data.get("fullTime", {}).get("home", 0) if isinstance(score_data, dict) else 0
+            away_goals = score_data.get("fullTime", {}).get("away", 0) if isinstance(score_data, dict) else 0
             score = f"{home_goals}-{away_goals}"
 
             # Minuto del partido
-            minute = match_data.get("status", {}).get("elapsed", 45) if isinstance(match_data.get("status"), dict) else 45
+            minute = match_data.get("utcDate", "").count(":") if match_data.get("utcDate") else 45
+            # Si no hay minuto, usar 45 como default
+            if not isinstance(minute, int) or minute < 0:
+                minute = 45
 
-            # Liga/Tournament
-            league_name = match_data.get("tournament", {}).get("name", "Unknown League") if isinstance(match_data.get("tournament"), dict) else "Unknown League"
+            # Liga/Torneo
+            competition = match_data.get("competition", {})
+            league_name = competition.get("name", "Unknown League") if isinstance(competition, dict) else "Unknown League"
 
-            # Estadísticas con cálculos inteligentes
-            stats = match_data.get("statistics", [])
-
-            # Si hay estadísticas, usarlas; si no, estimar basado en el score
+            # Estadísticas estimadas (football-data.org no proporciona xG)
             xg_home = 1.5 + random.uniform(-0.5, 0.5)
             xg_away = 1.3 + random.uniform(-0.5, 0.5)
             shots_home = 8
@@ -472,7 +478,7 @@ class SofaScoreAPI:
                 "match_id": match_data.get("id")
             }
         except Exception as e:
-            logger.error(f"Error procesando partido SofaScore: {e}")
+            logger.error(f"Error procesando partido football-data.org: {e}")
             return None
 
 # ============ LIVE FOOTBALL API - Datos en vivo reales (2100+ ligas) ============
@@ -604,7 +610,7 @@ def procesar_partidos_en_vivo():
         logger.info("⚽ Obteniendo partidos en vivo REALES de SofaScore...")
 
         # Obtener partidos de SofaScore (sin rate limits)
-        matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
+        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
 
         # Si SofaScore no tiene, intentar RapidAPI como fallback
         if not matches_api:
@@ -622,7 +628,7 @@ def procesar_partidos_en_vivo():
             try:
                 # Intentar procesar con SofaScore primero
                 if isinstance(match_api, dict):
-                    match_data = SofaScoreAPI.procesar_partido_real(match_api)
+                    match_data = FootballDataAPI.procesar_partido_real(match_api)
 
                     # Si falla con SofaScore, intentar con LiveFootballAPI
                     if not match_data:
@@ -875,7 +881,7 @@ def webhook_best_match():
         logger.info("🏆 Buscando el MEJOR partido EN VIVO REAL ahora (SofaScore)...")
 
         # Intentar SofaScore primero (sin rate limits)
-        matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
+        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
 
         # Si SofaScore no tiene, intentar RapidAPI
         if not matches_api:
@@ -895,7 +901,7 @@ def webhook_best_match():
         for match_api in matches_api:
             try:
                 # Procesar partido real
-                match_data = SofaScoreAPI.procesar_partido_real(match_api)
+                match_data = FootballDataAPI.procesar_partido_real(match_api)
 
                 # Si falla con SofaScore, intentar con LiveFootballAPI
                 if not match_data:
@@ -1129,7 +1135,7 @@ def iniciar_scheduler():
     """Inicializa el scheduler de tareas automáticas"""
     try:
         # Inicializar APIs
-        SofaScoreAPI.inicializar()
+        FootballDataAPI.inicializar()
         LiveFootballAPI.inicializar()
 
         scheduler = BackgroundScheduler()
