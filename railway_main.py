@@ -368,7 +368,7 @@ def webhook_match():
 
 @app.route('/webhook/test', methods=['POST', 'GET'])
 def webhook_test():
-    """Endpoint de test para verificar que la app funciona"""
+    """Endpoint de test para verificar que la app funciona y envía alertas a Telegram"""
     try:
         logger.info("Test webhook llamado")
 
@@ -398,9 +398,43 @@ def webhook_test():
             1.92
         )
 
+        # Calcular score y nivel
+        score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
+
+        # Si value >= 8.0, enviar alerta a Telegram
+        if poisson.value >= 8.0:
+            logger.info(f"🔔 ALERTA GENERADA EN TEST: Test Match (Value: {poisson.value}%)")
+
+            # Enviar a Telegram si está configurado
+            if bot:
+                alert_data = AlertData(
+                    partido=test_data["match_name"],
+                    liga=test_data["league"],
+                    minuto=test_data["minute"],
+                    marcador=test_data["score"],
+                    level=level,
+                    score_final=score_alerta,
+                    momentum=metricas["momentum"],
+                    xg_total=metricas["xg_total"],
+                    tiros=metricas["tiros_totales"],
+                    tiros_puerta=metricas.get("tiros_puerta", 0),
+                    dominancia=metricas["dominancia"],
+                    eficiencia=metricas["eficiencia"],
+                    lambda_final=poisson.lambda_final,
+                    p_gol=poisson.p_gol,
+                    p_mercado=poisson.p_mercado,
+                    value=poisson.value,
+                    recomendacion=poisson.recomendacion,
+                    timestamp=datetime.now().isoformat()
+                )
+                # Ejecutar de forma asincrónica
+                asyncio.run(enviar_alerta_telegram(alert_data))
+                logger.info("✓ Alerta TEST enviada a Telegram exitosamente")
+
         return jsonify({
             "status": "ok",
             "message": "Test exitoso",
+            "alert_sent": poisson.value >= 8.0,
             "test_data": {
                 "match": "Test Match",
                 "xg_total": metricas["xg_total"],
