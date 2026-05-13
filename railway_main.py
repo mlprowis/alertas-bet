@@ -605,17 +605,17 @@ class LiveFootballAPI:
             return None
 
 def procesar_partidos_en_vivo():
-    """Obtiene y procesa partidos en vivo REALES de SofaScore (SIN RATE LIMITS)"""
+    """Obtiene y procesa partidos en vivo REALES de RapidAPI (2100+ ligas)"""
     try:
-        logger.info("⚽ Obteniendo partidos en vivo REALES de SofaScore...")
+        logger.info("⚽ Obteniendo partidos en vivo REALES de RapidAPI (2100+ ligas)...")
 
-        # Obtener partidos de SofaScore (sin rate limits)
-        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+        # Obtener partidos de RapidAPI primero (tiene 2100+ ligas y key configurada)
+        matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
 
-        # Si SofaScore no tiene, intentar RapidAPI como fallback
+        # Si RapidAPI no tiene, intentar football-data.org como fallback
         if not matches_api:
-            logger.info("ℹ️ SofaScore sin partidos, intentando RapidAPI...")
-            matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
+            logger.info("ℹ️ RapidAPI sin partidos, intentando football-data.org...")
+            matches_api = FootballDataAPI.obtener_partidos_en_vivo()
 
         if not matches_api:
             logger.warning("⚠️ No hay partidos en vivo REALES en este momento")
@@ -878,15 +878,15 @@ def webhook_test():
 def webhook_best_match():
     """Endpoint para obtener y enviar el MEJOR partido en vivo AHORA (SOLO REALES)"""
     try:
-        logger.info("🏆 Buscando el MEJOR partido EN VIVO REAL ahora (SofaScore)...")
+        logger.info("🏆 Buscando el MEJOR partido EN VIVO REAL ahora (RapidAPI 2100+ ligas)...")
 
-        # Intentar SofaScore primero (sin rate limits)
-        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+        # Intentar RapidAPI primero (2100+ ligas, key configurada)
+        matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
 
-        # Si SofaScore no tiene, intentar RapidAPI
+        # Si RapidAPI no tiene, intentar football-data.org
         if not matches_api:
-            logger.info("ℹ️ SofaScore sin partidos, intentando RapidAPI...")
-            matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
+            logger.info("ℹ️ RapidAPI sin partidos, intentando football-data.org...")
+            matches_api = FootballDataAPI.obtener_partidos_en_vivo()
 
         if not matches_api:
             return jsonify({
@@ -1151,8 +1151,8 @@ def iniciar_scheduler():
 
         scheduler.start()
         logger.info("✓ Scheduler iniciado - Partidos EN VIVO REALES cada 5 minutos")
-        logger.info("🌍 Conectado a SofaScore (SIN RATE LIMITS - Cobertura mundial)")
-        logger.info("🌍 Alternativa: RapidAPI (2100+ ligas)")
+        logger.info("🌍 Primario: RapidAPI (2100+ ligas - Cobertura mundial)")
+        logger.info("🌍 Alternativa: football-data.org")
         logger.info("📊 SOLO datos REALES - Sin simulaciones")
         return scheduler
     except Exception as e:
