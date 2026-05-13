@@ -439,8 +439,18 @@ class FlashScoreAPI:
     def procesar_partido_real(match_data: dict) -> Dict[str, Any]:
         """Convierte datos de FlashScore al formato de AlertasBet"""
         try:
+            # Validar que sea dict, no string
+            if isinstance(match_data, str):
+                logger.warning(f"FlashScore retornó string en lugar de dict: {match_data[:100]}")
+                return None
+
+            if not isinstance(match_data, dict):
+                logger.warning(f"FlashScore retornó tipo inesperado: {type(match_data)}")
+                return None
+
             # Adaptarse al formato de FlashScore
-            league_name = match_data.get("league", {}).get("name") or match_data.get("tournament", "Unknown League")
+            league_name = match_data.get("league", {}).get("name") if isinstance(match_data.get("league"), dict) else None
+            league_name = league_name or match_data.get("tournament", "Unknown League")
 
             home_team = match_data.get("home_team", {}).get("name") or match_data.get("homeTeam", {}).get("name") or "Team A"
             away_team = match_data.get("away_team", {}).get("name") or match_data.get("awayTeam", {}).get("name") or "Team B"
@@ -511,8 +521,7 @@ class LiveFootballAPI:
         """Obtiene partidos en vivo de TODAS las ligas (2100+)"""
         if not RAPIDAPI_KEY:
             logger.warning("⚠️ RapidAPI Key no configurado")
-            # Fallback a simulados si no hay clave
-            return [SimulatedMatches.generar_partido_simulado() for _ in range(3)]
+            return []
 
         try:
             # Intentar múltiples endpoints de RapidAPI
@@ -547,14 +556,14 @@ class LiveFootballAPI:
                     logger.warning(f"⚠️ RapidAPI ({endpoint}): {str(e)[:80]}")
                     continue
 
-            # Si ningún endpoint de RapidAPI funciona, usar simulados
-            logger.warning("⚠️ RapidAPI: No hay conexión. Usando datos simulados.")
-            return [SimulatedMatches.generar_partido_simulado() for _ in range(3)]
+            # Si ningún endpoint de RapidAPI funciona, retornar vacío (SOLO datos reales)
+            logger.warning("⚠️ RapidAPI: No hay conexión.")
+            return []
 
         except Exception as e:
             logger.error(f"Error obteniendo partidos: {e}")
-            # Fallback final a simulados
-            return [SimulatedMatches.generar_partido_simulado() for _ in range(3)]
+            # Sin fallback - SOLO datos reales
+            return []
 
     @staticmethod
     def procesar_partido_real(match_api_data: dict) -> Dict[str, Any]:
