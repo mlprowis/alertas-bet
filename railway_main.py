@@ -9,6 +9,7 @@ Servicio webhook que monitorea partidos en vivo y envía alertas a Telegram
 import os
 import json
 import logging
+import math
 import asyncio
 from datetime import datetime
 from typing import Dict, Any
@@ -18,7 +19,6 @@ from enum import Enum
 from flask import Flask, request, jsonify
 from telegram import Bot
 from telegram.error import TelegramError
-import numpy as np
 
 # ============ LOGGING ============
 logging.basicConfig(
@@ -126,7 +126,7 @@ class PoissonModel:
         """Calcula P(Gol) usando distribución Poisson"""
         if lambda_valor <= 0:
             return 0.0
-        return 1 - np.exp(-lambda_valor)
+        return 1 - math.exp(-lambda_valor)
 
     @staticmethod
     def calcular_value(p_modelo: float, p_mercado: float) -> float:
