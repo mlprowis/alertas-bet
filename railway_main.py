@@ -33,12 +33,13 @@ logger = logging.getLogger(__name__)
 PORT = int(os.getenv("PORT", 5000))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-FOOTBALL_DATA_API_TOKEN = os.getenv("FOOTBALL_DATA_API_TOKEN", "")
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
+RAPIDAPI_HOST = "free-api-live-football-data.p.rapidapi.com"
 
 logger.info(f"🚀 Configuración Railway: PORT={PORT}")
 logger.info(f"📱 Telegram Token: {'✓ Configurado' if TELEGRAM_TOKEN else '⚠️ NO CONFIGURADO'}")
 logger.info(f"💬 Chat ID: {'✓ Configurado' if TELEGRAM_CHAT_ID else '⚠️ NO CONFIGURADO'}")
-logger.info(f"⚽ Football-Data API: {'✓ Configurado' if FOOTBALL_DATA_API_TOKEN else '⚠️ NO CONFIGURADO'}")
+logger.info(f"⚽ RapidAPI (2100+ ligas): {'✓ Configurado' if RAPIDAPI_KEY else '⚠️ NO CONFIGURADO'}")
 
 # ============ FLASK APP ============
 app = Flask(__name__)
@@ -365,37 +366,40 @@ class SimulatedMatches:
             "odds_over_1": odds_over_1
         }
 
-# ============ FOOTBALL DATA API - Datos en vivo reales ============
-class FootballDataAPI:
-    """Integración con football-data.org para datos en vivo"""
+# ============ LIVE FOOTBALL API - Datos en vivo reales (2100+ ligas) ============
+class LiveFootballAPI:
+    """Integración con Free API Live Football Data (2100+ ligas y competiciones)"""
 
-    BASE_URL = "https://api.football-data.org/v4"
+    BASE_URL = "https://free-api-live-football-data.p.rapidapi.com"
     HEADERS = None
 
     @staticmethod
     def inicializar():
-        """Inicializa headers con API token"""
-        FootballDataAPI.HEADERS = {"X-Auth-Token": FOOTBALL_DATA_API_TOKEN}
+        """Inicializa headers con API tokens de RapidAPI"""
+        LiveFootballAPI.HEADERS = {
+            "X-RapidAPI-Key": RAPIDAPI_KEY,
+            "X-RapidAPI-Host": RAPIDAPI_HOST
+        }
 
     @staticmethod
     def obtener_partidos_en_vivo() -> list:
-        """Obtiene partidos en vivo de todas las ligas disponibles"""
-        if not FOOTBALL_DATA_API_TOKEN:
-            logger.warning("⚠️ Football-Data API token no configurado")
+        """Obtiene partidos en vivo de TODAS las ligas (2100+)"""
+        if not RAPIDAPI_KEY:
+            logger.warning("⚠️ RapidAPI Key no configurado")
             return []
 
         try:
-            # Obtener partidos en estado LIVE
-            url = f"{FootballDataAPI.BASE_URL}/matches?status=LIVE"
-            response = requests.get(url, headers=FootballDataAPI.HEADERS, timeout=10)
+            # Obtener todos los partidos en vivo
+            url = f"{LiveFootballAPI.BASE_URL}/matches"
+            response = requests.get(url, headers=LiveFootballAPI.HEADERS, timeout=15)
 
             if response.status_code == 200:
                 data = response.json()
-                matches = data.get("matches", [])
-                logger.info(f"✓ Obtenidos {len(matches)} partidos en vivo")
+                matches = data.get("data", []) if isinstance(data, dict) else data if isinstance(data, list) else []
+                logger.info(f"✓ Obtenidos {len(matches)} partidos en vivo de 2100+ ligas")
                 return matches
             else:
-                logger.error(f"Error football-data API: {response.status_code}")
+                logger.error(f"Error RapidAPI: {response.status_code}")
                 return []
 
         except Exception as e:
@@ -404,21 +408,21 @@ class FootballDataAPI:
 
     @staticmethod
     def procesar_partido_real(match_api_data: dict) -> Dict[str, Any]:
-        """Convierte datos de football-data.org al formato de AlertasBet"""
+        """Convierte datos de RapidAPI (2100+ ligas) al formato de AlertasBet"""
         try:
-            competition = match_api_data.get("competition", {})
-            league_name = competition.get("name", "Unknown League")
+            # Adaptarse al formato de la API de RapidAPI
+            league_name = match_api_data.get("league", {}).get("name") or match_api_data.get("league_name", "Unknown League")
 
-            home_team = match_api_data.get("homeTeam", {}).get("name", "Team A")
-            away_team = match_api_data.get("awayTeam", {}).get("name", "Team B")
+            home_team = match_api_data.get("home_team", {}).get("name") or match_api_data.get("home_team_name", "Team A")
+            away_team = match_api_data.get("away_team", {}).get("name") or match_api_data.get("away_team_name", "Team B")
             match_name = f"{home_team} vs {away_team}"
 
-            score_obj = match_api_data.get("score", {})
-            home_goals = score_obj.get("fullTime", {}).get("home") or score_obj.get("current", 0)
-            away_goals = score_obj.get("fullTime", {}).get("away") or score_obj.get("current", 0)
+            # Intentar obtener goles del score actual
+            home_goals = match_api_data.get("goals", {}).get("home") or match_api_data.get("home_score", 0)
+            away_goals = match_api_data.get("goals", {}).get("away") or match_api_data.get("away_score", 0)
             score = f"{home_goals}-{away_goals}"
 
-            minute = match_api_data.get("minute", 45)
+            minute = match_api_data.get("minute", 45) or match_api_data.get("elapsed", 45)
 
             # Estimaciones basadas en datos disponibles
             # football-data.org no proporciona xG, así que lo estimamos
@@ -462,12 +466,12 @@ class FootballDataAPI:
             return None
 
 def procesar_partidos_en_vivo():
-    """Obtiene y procesa partidos en vivo reales de football-data.org"""
+    """Obtiene y procesa partidos en vivo reales de 2100+ ligas"""
     try:
-        logger.info("⚽ Obteniendo partidos en vivo reales...")
+        logger.info("⚽ Obteniendo partidos en vivo reales (2100+ ligas)...")
 
         # Obtener partidos en vivo
-        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+        matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
 
         if not matches_api:
             logger.info("ℹ️ No hay partidos en vivo en este momento")
@@ -722,10 +726,10 @@ def webhook_test():
 def webhook_best_match():
     """Endpoint para obtener y enviar el MEJOR partido en vivo AHORA"""
     try:
-        logger.info("🏆 Buscando el MEJOR partido en vivo ahora...")
+        logger.info("🏆 Buscando el MEJOR partido en vivo ahora (2100+ ligas)...")
 
         # Obtener partidos en vivo
-        matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+        matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
 
         if not matches_api:
             return jsonify({
@@ -877,8 +881,8 @@ def server_error(e):
 def iniciar_scheduler():
     """Inicializa el scheduler de tareas automáticas"""
     try:
-        # Inicializar API de football-data
-        FootballDataAPI.inicializar()
+        # Inicializar API con soporte para 2100+ ligas
+        LiveFootballAPI.inicializar()
 
         scheduler = BackgroundScheduler()
 
@@ -888,12 +892,13 @@ def iniciar_scheduler():
             'interval',
             minutes=5,
             id='live_matches',
-            name='Obtener Partidos en Vivo Reales'
+            name='Obtener Partidos en Vivo (2100+ ligas)'
         )
 
         scheduler.start()
         logger.info("✓ Scheduler iniciado - Partidos EN VIVO cada 5 minutos")
-        logger.info("⚽ Conectado a football-data.org")
+        logger.info("🌍 Conectado a RapidAPI (2100+ ligas y competiciones)")
+        logger.info("📊 Cubriendo ligas principales y menores")
         return scheduler
     except Exception as e:
         logger.error(f"✗ Error inicializando scheduler: {e}")
