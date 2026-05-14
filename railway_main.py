@@ -626,13 +626,13 @@ def procesar_partidos_en_vivo():
         # Procesar cada partido
         for match_api in matches_api:
             try:
-                # Intentar procesar con SofaScore primero
                 if isinstance(match_api, dict):
-                    match_data = FootballDataAPI.procesar_partido_real(match_api)
+                    # Intentar primero con LiveFootballAPI (RapidAPI)
+                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
 
-                    # Si falla con SofaScore, intentar con LiveFootballAPI
+                    # Si falla, intentar con FootballDataAPI
                     if not match_data:
-                        match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                        match_data = FootballDataAPI.procesar_partido_real(match_api)
 
                 if not match_data:
                     continue
@@ -900,12 +900,12 @@ def webhook_best_match():
 
         for match_api in matches_api:
             try:
-                # Procesar partido real
-                match_data = FootballDataAPI.procesar_partido_real(match_api)
+                # Procesar con LiveFootballAPI primero (RapidAPI)
+                match_data = LiveFootballAPI.procesar_partido_real(match_api)
 
-                # Si falla con SofaScore, intentar con LiveFootballAPI
+                # Si falla, intentar con FootballDataAPI
                 if not match_data:
-                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                    match_data = FootballDataAPI.procesar_partido_real(match_api)
 
                 if not match_data:
                     continue
