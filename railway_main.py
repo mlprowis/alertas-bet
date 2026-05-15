@@ -267,106 +267,6 @@ async def enviar_alerta_telegram(alert: AlertData) -> bool:
         logger.error(f"✗ Error inesperado: {e}")
         return False
 
-# ============ SIMULATED MATCHES - Sistema de Simulación de Partidos REALISTA ============
-class SimulatedMatches:
-    """Generador de datos de partidos simulados con LÓGICA REAL"""
-
-    LIGAS = ["Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1"]
-    EQUIPOS = [
-        ("Manchester United", "Liverpool"),
-        ("Real Madrid", "Barcelona"),
-        ("Juventus", "AC Milan"),
-        ("Bayern Munich", "Dortmund"),
-        ("PSG", "Marseille"),
-        ("Arsenal", "Tottenham"),
-        ("Inter", "Roma"),
-        ("Sevilla", "Atletico Madrid"),
-    ]
-
-    @staticmethod
-    def generar_partido_simulado() -> Dict[str, Any]:
-        """Genera datos realistas de un partido en vivo con lógica coherente"""
-        league = random.choice(SimulatedMatches.LIGAS)
-        home_team, away_team = random.choice(SimulatedMatches.EQUIPOS)
-
-        # Minuto del partido (20-85 = en vivo realista)
-        minute = random.randint(20, 85)
-        minutes_remaining = 90 - minute
-
-        # Probabilidad de goles basada en minuto
-        # Más tarde = menos probabilidad de goles futuros
-        goal_probability_factor = (minutes_remaining / 90.0) * random.uniform(0.7, 1.3)
-
-        # Goles actuales con lógica (relación con minuto)
-        # Primeros 20 min: 0-1 goles típicos
-        # Min 45-60: 1-2 goles típicos
-        # Min 75+: 1-3 goles típicos
-        if minute < 30:
-            goals_home = random.randint(0, 1) if random.random() > 0.5 else 0
-            goals_away = random.randint(0, 1) if random.random() > 0.5 else 0
-        elif minute < 60:
-            goals_home = random.randint(0, 2)
-            goals_away = random.randint(0, 2)
-        else:
-            goals_home = random.randint(0, 3)
-            goals_away = random.randint(0, 3)
-
-        total_goals = goals_home + goals_away
-        score = f"{goals_home}-{goals_away}"
-
-        # xG proporcional a goles (equipo con más goles tiene más xG)
-        home_dominance = random.uniform(0.45, 0.65)
-        xg_home = round((0.8 + total_goals * 0.5 + random.uniform(-0.5, 0.5)) * home_dominance, 2)
-        xg_away = round((0.8 + total_goals * 0.5 + random.uniform(-0.5, 0.5)) * (1 - home_dominance), 2)
-
-        # Tiros proporcionales a xG
-        shots_home = max(3, int(xg_home * random.uniform(3, 5)))
-        shots_away = max(3, int(xg_away * random.uniform(3, 5)))
-
-        # Tiros a puerta proporcionales a tiros totales (40-60%)
-        shots_on_target_home = max(1, int(shots_home * random.uniform(0.35, 0.55)))
-        shots_on_target_away = max(1, int(shots_away * random.uniform(0.35, 0.55)))
-
-        possession_home = round(home_dominance * 100)
-        possession_away = 100 - possession_home
-
-        # CUOTAS INTELIGENTES basadas en análisis real
-        # Over 1.0 Asiático = probabilidad de más de 1 gol
-        minutes_played = minute
-        goles_jugados = total_goals
-
-        # Ratio goles/minuto actual
-        goles_por_minuto = goles_jugados / max(1, minutes_played)
-        goles_proyectados = goles_por_minuto * 90
-
-        # Probabilidad de más goles basada en:
-        # - Goles proyectados
-        # - xG restante
-        # - Minuto del partido
-        xg_remaining = (xg_home + xg_away) / 2 * (minutes_remaining / 90.0)
-        expected_more_goals_prob = min(0.95, 0.3 + (goles_proyectados / 4.0) * 0.3 + (xg_remaining / 1.5) * 0.2)
-
-        # Cuota Over = 1 / probabilidad + margen bookmaker (2-10%)
-        margin = random.uniform(0.02, 0.08)
-        odds_over_1 = round(1.0 / max(0.25, expected_more_goals_prob - margin) + random.uniform(-0.05, 0.05), 2)
-        odds_over_1 = max(1.05, min(2.50, odds_over_1))  # Entre 1.05 y 2.50
-
-        return {
-            "match_name": f"{home_team} vs {away_team}",
-            "league": league,
-            "minute": minute,
-            "score": score,
-            "xg_home": max(0.1, xg_home),
-            "xg_away": max(0.1, xg_away),
-            "shots_home": shots_home,
-            "shots_away": shots_away,
-            "shots_on_target_home": shots_on_target_home,
-            "shots_on_target_away": shots_on_target_away,
-            "possession_home": possession_home,
-            "possession_away": possession_away,
-            "odds_over_1": odds_over_1
-        }
-
 # ============ FOOTBALL-DATA.ORG API - Datos EN VIVO reales (PLAN GRATUITO GENEROSO) ============
 class FootballDataAPI:
     """Integración con football-data.org (API oficial, plan gratuito confiable)"""
@@ -982,20 +882,6 @@ def webhook_best_match():
         logger.error(f"Error en webhook_best_match: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/webhook/simulated', methods=['POST', 'GET'])
-def webhook_simulated():
-    """Endpoint para disparar un partido simulado manual"""
-    try:
-        logger.info("🎲 Partido simulado disparado manualmente")
-        procesar_partido_simulado()
-        return jsonify({
-            "status": "ok",
-            "message": "Partido simulado procesado"
-        }), 200
-    except Exception as e:
-        logger.error(f"Error en webhook_simulated: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/status', methods=['GET'])
 def status():
     """Estado completo del servicio"""
@@ -1015,7 +901,6 @@ def status():
             "GET /status": "Estado completo",
             "POST /webhook/test": "Test del sistema",
             "POST /webhook/match": "Procesar partido",
-            "POST /webhook/simulated": "Partido simulado manual",
             "POST /webhook/best-match": "Mejor partido EN VIVO ahora",
             "GET /webhook/diagnose": "Diagnosticar RapidAPI"
         }
