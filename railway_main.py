@@ -2124,6 +2124,37 @@ def iniciar_scheduler():
 # Iniciar scheduler cuando inicia la app
 scheduler = iniciar_scheduler()
 
+# ============ ENDPOINT SIMPLE DE TELEGRAM PARA DIAGNOSTICAR ============
+@app.route('/webhook/telegram-test', methods=['GET', 'POST'])
+def telegram_test():
+    """Test DIRECTO de Telegram - sin lógica, solo envío"""
+    try:
+        logger.info(f"[SIMPLE TEST] Iniciando... Token={TELEGRAM_TOKEN[:10]}..., ChatID={TELEGRAM_CHAT_ID}")
+
+        # Enviar mensaje simple
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": int(TELEGRAM_CHAT_ID),
+            "text": "SIMPLE TEST MESSAGE - If you see this, Telegram works!"
+        }
+
+        logger.info(f"[SIMPLE TEST] Haciendo POST a {url[:50]}...")
+        response = requests.post(url, json=payload, timeout=10)
+        logger.info(f"[SIMPLE TEST] Status code: {response.status_code}")
+        logger.info(f"[SIMPLE TEST] Response: {response.text[:100]}")
+
+        return jsonify({
+            "status": "ok" if response.status_code == 200 else "error",
+            "telegram_status": response.status_code,
+            "token_configured": bool(TELEGRAM_TOKEN),
+            "chat_id_configured": bool(TELEGRAM_CHAT_ID),
+            "message": "Check Telegram now"
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[SIMPLE TEST] Exception: {e}", exc_info=True)
+        return jsonify({"status": "error", "error": str(e)}), 500
+
 # ============ MAIN - para ejecución directa ============
 if __name__ == '__main__':
     logger.info("="*60)
