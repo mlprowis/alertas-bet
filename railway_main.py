@@ -48,8 +48,9 @@ RAPIDAPI_HOST = "free-api-live-football-data.p.rapidapi.com"
 SPORTMONK_API_KEY = os.getenv("SPORTMONK_API_KEY", "THM6jVCaaP9b4Isr0cJUMAuCPTVEfU8DgNxyELpsPxPVgT3Y5ww5N6HNFZ5T")
 
 logger.info(f"🚀 Configuración Railway: PORT={PORT}")
-logger.info(f"📱 Telegram Token: {'✓ Configurado' if TELEGRAM_TOKEN else '⚠️ NO CONFIGURADO'}")
-logger.info(f"💬 Chat ID: {'✓ Configurado' if TELEGRAM_CHAT_ID else '⚠️ NO CONFIGURADO'}")
+logger.info(f"📱 Telegram Token: {'✓ Configurado' if TELEGRAM_TOKEN else '⚠️ NO CONFIGURADO'} (len={len(TELEGRAM_TOKEN)})")
+logger.info(f"💬 Chat ID: {'✓ Configurado' if TELEGRAM_CHAT_ID else '⚠️ NO CONFIGURADO'} (value={TELEGRAM_CHAT_ID})")
+logger.info(f"⚽ SportMonk API: {'✓ Configurado' if SPORTMONK_API_KEY else '⚠️ NO CONFIGURADO'}")
 logger.info(f"⚽ RapidAPI (2100+ ligas): {'✓ Configurado' if RAPIDAPI_KEY else '⚠️ NO CONFIGURADO'}")
 
 # ============ SISTEMA ANTI-DUPLICADOS ============
