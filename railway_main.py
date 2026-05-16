@@ -42,6 +42,24 @@ logger.info(f"📱 Telegram Token: {'✓ Configurado' if TELEGRAM_TOKEN else '�
 logger.info(f"💬 Chat ID: {'✓ Configurado' if TELEGRAM_CHAT_ID else '⚠️ NO CONFIGURADO'}")
 logger.info(f"⚽ RapidAPI (2100+ ligas): {'✓ Configurado' if RAPIDAPI_KEY else '⚠️ NO CONFIGURADO'}")
 
+# ============ SISTEMA ANTI-DUPLICADOS ============
+# Caché de partidos ya alertados (match_name -> último timestamp)
+ALERTAS_ENVIADAS = {}
+TIEMPO_MINIMO_ENTRE_ALERTAS = 3600  # 1 hora
+
+def fue_alertado_recientemente(match_name: str) -> bool:
+    """Verifica si este partido fue alertado en los últimos 1 hora"""
+    if match_name not in ALERTAS_ENVIADAS:
+        return False
+
+    tiempo_desde_alerta = datetime.now().timestamp() - ALERTAS_ENVIADAS[match_name]
+    return tiempo_desde_alerta < TIEMPO_MINIMO_ENTRE_ALERTAS
+
+def registrar_alerta(match_name: str):
+    """Registra que se envió una alerta para este partido"""
+    ALERTAS_ENVIADAS[match_name] = datetime.now().timestamp()
+    logger.debug(f"✓ Registrada alerta para: {match_name}")
+
 # ============ FLASK APP ============
 app = Flask(__name__)
 
@@ -907,26 +925,34 @@ def generar_partidos_simulados_realistas():
     ]
 
     partidos = []
-    for match in matchups:
-        # Generar datos realistas variad os
-        minute = random.randint(10, 85)
-        home_goals = random.randint(0, 2)
-        away_goals = random.randint(0, 2)
+    # Aleatorizar qué partidos mostrar (solo 3-4)
+    random.shuffle(matchups)
+    for match in matchups[:random.randint(3, 4)]:
+        # Generar datos realistas VARIADOS
+        minute = random.randint(8, 88)
+
+        # Score variado
+        if random.random() < 0.4:  # 40% sin goles
+            home_goals = 0
+            away_goals = 0
+        else:
+            home_goals = random.randint(0, 3)
+            away_goals = random.randint(0, 3)
 
         partido = {
             "match_name": f"{match['home']} vs {match['away']}",
             "league": match['league'],
             "minute": minute,
             "score": f"{home_goals}-{away_goals}",
-            "xg_home": round(random.uniform(0.8, 2.5), 2),
-            "xg_away": round(random.uniform(0.6, 2.2), 2),
-            "shots_home": random.randint(3, 14),
-            "shots_away": random.randint(2, 12),
-            "shots_on_target_home": random.randint(1, 6),
-            "shots_on_target_away": random.randint(1, 5),
-            "possession_home": random.randint(35, 70),
-            "possession_away": 0,  # Se calcula después
-            "odds_over_1": round(random.uniform(1.7, 2.1), 2)
+            "xg_home": round(random.uniform(0.5, 2.6), 2),
+            "xg_away": round(random.uniform(0.4, 2.3), 2),
+            "shots_home": random.randint(2, 15),
+            "shots_away": random.randint(1, 13),
+            "shots_on_target_home": random.randint(0, 7),
+            "shots_on_target_away": random.randint(0, 6),
+            "possession_home": random.randint(30, 75),
+            "possession_away": 0,
+            "odds_over_1": round(random.uniform(1.62, 2.30), 2)
         }
 
         # Calcular posesión away
@@ -934,7 +960,7 @@ def generar_partidos_simulados_realistas():
 
         partidos.append(partido)
 
-    logger.info(f"🎲 Generados {len(partidos)} partidos simulados realistas como fallback")
+    logger.info(f"🎲 Generados {len(partidos)} partidos simulados VARIADOS como fallback (anti-duplicados activo)")
     return partidos
 
 def procesar_partidos_en_vivo():
@@ -1037,9 +1063,14 @@ def procesar_partidos_en_vivo():
 
                 score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
 
-                # Si value >= 8.0, enviar alerta
+                # Si value >= 8.0, enviar alerta (pero no si ya fue enviada hace poco)
                 if poisson.value >= 8.0:
+                    if fue_alertado_recientemente(match_data['match_name']):
+                        logger.debug(f"⏭️ SALTAR ALERTA: {match_data['match_name']} fue alertado hace poco")
+                        continue
+
                     logger.info(f"🔔 ALERTA REAL: {match_data['match_name']} (Value: {poisson.value}%)")
+                    registrar_alerta(match_data['match_name'])
 
                     if bot:
                         alert_data = AlertData(
@@ -1513,7 +1544,20 @@ def webhook_best_match():
 
         # Si encontró un partido, enviarlo (threshold bajo)
         if best_match and best_value >= 2.0:  # Threshold bajo para mostrar
-            logger.info(f"🏆 MEJOR PARTIDO: {best_match['match_data']['match_name']} (Value: {best_value}%)")
+            match_name = best_match['match_data']['match_name']
+            logger.info(f"🏆 MEJOR PARTIDO: {match_name} (Value: {best_value}%)")
+
+            # Verificar si ya fue alertado recientemente
+            if fue_alertado_recientemente(match_name):
+                logger.info(f"⏭️ SALTAR ENVÍO: {match_name} fue alertado hace poco (máx 1 alerta/hora)")
+                return jsonify({
+                    "status": "skipped",
+                    "message": f"Partido ya fue alertado recientemente",
+                    "match": match_name,
+                    "reason": "Anti-duplicados activo (máx 1 alerta por hora por partido)"
+                }), 200
+
+            registrar_alerta(match_name)
 
             if bot:
                 alert_data = AlertData(
