@@ -1560,31 +1560,23 @@ def webhook_test():
         if poisson.value >= 8.0:
             logger.info(f"🔔 ALERTA GENERADA EN TEST: Test Match (Value: {poisson.value}%)")
 
-            # Enviar a Telegram si está configurado
+            # Enviar a Telegram DIRECTAMENTE
             if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-                alert_data = AlertData(
-                    partido=test_data["match_name"],
-                    liga=test_data["league"],
-                    minuto=test_data["minute"],
-                    marcador=test_data["score"],
-                    level=level,
-                    score_final=score_alerta,
-                    momentum=metricas["momentum"],
-                    xg_total=metricas["xg_total"],
-                    tiros=metricas["tiros_totales"],
-                    tiros_puerta=metricas.get("tiros_puerta", 0),
-                    dominancia=metricas["dominancia"],
-                    eficiencia=metricas["eficiencia"],
-                    lambda_final=poisson.lambda_final,
-                    p_gol=poisson.p_gol,
-                    p_mercado=poisson.p_mercado,
-                    value=poisson.value,
-                    recomendacion=poisson.recomendacion,
-                    timestamp=datetime.now().isoformat()
-                )
-                # Ejecutar de forma asincrónica
-                enviar_alerta_telegram(alert_data)
-                logger.info("✓ Alerta TEST enviada a Telegram exitosamente")
+                try:
+                    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                    payload = {
+                        "chat_id": int(TELEGRAM_CHAT_ID),
+                        "text": f"TEST ALERT: {test_data['match_name']} - Value: {poisson.value:.1f}%"
+                    }
+                    logger.info(f"[TEST] Enviando a Telegram: chat_id={TELEGRAM_CHAT_ID}, token_len={len(TELEGRAM_TOKEN)}")
+                    resp = requests.post(url, json=payload, timeout=10)
+                    logger.info(f"[TEST] Telegram response: {resp.status_code}")
+                    if resp.status_code == 200:
+                        logger.info("✓ TEST Alerta enviada a Telegram exitosamente")
+                    else:
+                        logger.error(f"✗ TEST Telegram error: {resp.text}")
+                except Exception as e:
+                    logger.error(f"✗ TEST Telegram exception: {e}", exc_info=True)
 
         return jsonify({
             "status": "ok",
