@@ -250,45 +250,25 @@ class SportAnalyzer:
 # ============ TELEGRAM ALERTS ============
 def enviar_alerta_telegram(alert: AlertData) -> bool:
     """Envía alerta formateada a Telegram (sincrónico)"""
+    logger.info(f"[TELEGRAM DEBUG] Iniciando envío... Token={bool(TELEGRAM_TOKEN)}, ChatID={TELEGRAM_CHAT_ID}")
+
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        logger.warning("Bot Telegram no configurado")
+        logger.warning(f"[TELEGRAM] Bot no configurado. Token: {bool(TELEGRAM_TOKEN)}, ChatID: {bool(TELEGRAM_CHAT_ID)}")
         return False
 
     try:
-        mensaje = f"""{alert.level.value} <b>{alert.level.name}</b>
-
-<b>⚽ {alert.partido}</b>
-Liga: {alert.liga}
-Minuto: {alert.minuto}
-Marcador: {alert.marcador}
-
-<b>ANALISIS:</b>
-Score: {alert.score_final:.3f}
-Momentum: {alert.momentum:.2f}
-xG Total: {alert.xg_total:.2f}
-Tiros: {alert.tiros} (en puerta: {alert.tiros_puerta})
-Dominancia: {alert.dominancia:.1f}%
-
-<b>MODELO POISSON:</b>
-Lambda: {alert.lambda_final:.3f}
-P(Gol): {alert.p_gol:.1f}%
-
-<b>OPORTUNIDAD:</b>
-P(Mercado): {alert.p_mercado:.1f}%
-VALUE: <b>+{alert.value:.1f}%</b>
-
-<b>RECOMENDACION: {alert.recomendacion}</b>
-
-Timestamp: {alert.timestamp}"""
+        mensaje = f"⚽ {alert.partido}\nLiga: {alert.liga}\nValue: {alert.value:.1f}%"
 
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
+            "chat_id": int(TELEGRAM_CHAT_ID),
             "text": mensaje,
             "parse_mode": "HTML"
         }
 
+        logger.info(f"[TELEGRAM] Enviando a {TELEGRAM_CHAT_ID}...")
         response = requests.post(url, json=payload, timeout=10)
+        logger.info(f"[TELEGRAM] Response status: {response.status_code}")
 
         if response.status_code == 200:
             logger.info(f"✓ Alerta enviada a Telegram: {alert.partido}")
