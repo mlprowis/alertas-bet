@@ -1510,37 +1510,6 @@ def webhook_diagnose():
         logger.error(f"Error en diagnóstico: {e}", exc_info=True)
         return jsonify({"error": str(e)[:100]}), 500
 
-                logger.info(f"✅ {endpoint} retornó {response.status_code}")
-
-            except requests.exceptions.Timeout:
-                results["endpoints_tested"][endpoint] = {
-                    "status_code": 0,
-                    "error": "Timeout (10s)"
-                }
-            except Exception as e:
-                results["endpoints_tested"][endpoint] = {
-                    "status_code": 0,
-                    "error": str(e)[:100]
-                }
-
-        # Encontrar endpoint que funciona
-        working_endpoint = None
-        for ep, result in results["endpoints_tested"].items():
-            if result.get("success"):
-                working_endpoint = ep
-                break
-
-        results["working_endpoint"] = working_endpoint
-        results["diagnostic_complete"] = True
-
-        logger.info(f"🧪 Diagnóstico completado. Endpoint funcional: {working_endpoint}")
-
-        return jsonify(results), 200
-
-    except Exception as e:
-        logger.error(f"Error en diagnóstico: {e}", exc_info=True)
-        return jsonify({"error": str(e), "diagnostic_complete": False}), 500
-
 # ============ ERROR HANDLERS ============
 @app.errorhandler(404)
 def not_found(e):
