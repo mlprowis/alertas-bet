@@ -1136,11 +1136,13 @@ def procesar_partidos_en_vivo():
                 logger.info(f"📊 Usando football-data.org: {len(matches_api)} partidos")
 
         if not matches_api:
-            logger.warning("⚠️ No hay partidos en vivo en APIs principales. Usando datos simulados realistas como fallback...")
-            # Fallback: Generar partidos realistas simulados para mantener el bot activo
-            matches_api = generar_partidos_simulados_realistas()
-            api_source = "SIMULADO (fallback)"
-            logger.info(f"📊 Usando datos simulados realistas: {len(matches_api)} partidos")
+            logger.error("❌ NO HAY PARTIDOS EN VIVO - Todas las APIs retornan 0 partidos")
+            return jsonify({
+                "status": "no_matches",
+                "message": "❌ NO HAY PARTIDOS EN VIVO EN ESTE MOMENTO",
+                "api_status": "Todas las APIs retornan 0 partidos",
+                "recommendation": "Intenta más tarde cuando haya partidos activos"
+            }), 200
 
         logger.info(f"📊 Procesando {len(matches_api)} partidos en vivo desde {api_source}...")
 
@@ -1681,11 +1683,13 @@ def webhook_best_match():
                 api_source = "football-data.org"
 
         if not matches_api:
-            logger.warning("⚠️ No hay partidos en vivo en APIs principales. Usando datos simulados realistas como fallback...")
-            # Fallback: Generar partidos realistas simulados para mantener el bot activo
-            matches_api = generar_partidos_simulados_realistas()
-            api_source = "SIMULADO (fallback)"
-            logger.info(f"📊 Usando datos simulados realistas: {len(matches_api)} partidos")
+            logger.error("❌ NO HAY PARTIDOS EN VIVO - Todas las APIs retornan 0 partidos")
+            return jsonify({
+                "status": "no_matches",
+                "message": "❌ NO HAY PARTIDOS EN VIVO EN ESTE MOMENTO",
+                "api_status": "Todas las APIs retornan 0 partidos",
+                "recommendation": "Intenta más tarde cuando haya partidos activos"
+            }), 200
 
         logger.info(f"📊 Buscando mejor partido en {len(matches_api)} partidos de {api_source}...")
 
