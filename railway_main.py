@@ -20,6 +20,7 @@ from enum import Enum
 from flask import Flask, request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
+from bs4 import BeautifulSoup
 
 # Playwright removido - usando SportMonk API como fuente primaria
 
@@ -1008,7 +1009,42 @@ def estimar_estadisticas_inteligentes(minute: int, goals_total: int) -> Dict[str
             "possession_home": 50
         }
 
-# ============ FLASHSCORE WEB SCRAPER - Datos EN VIVO reales con Playwright ============
+# ============ FLASHSCORE WEB SCRAPER - Datos EN VIVO reales ============
+class FlashScoreScraper:
+    """Web scraper de FlashScore para obtener partidos EN VIVO reales"""
+
+    @staticmethod
+    def obtener_partidos_en_vivo() -> list:
+        """Scrappea partidos en vivo de flashscore usando BeautifulSoup"""
+        try:
+            logger.info("🔍 Scrapeando FlashScore para partidos EN VIVO...")
+
+            # Usar API de flashscore sin autenticación
+            url = "https://www.flashscore.com/api/livescores/"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                matches = data.get("matches", []) if isinstance(data, dict) else []
+
+                if matches:
+                    logger.info(f"✅ FlashScore: {len(matches)} partidos EN VIVO encontrados")
+                    return matches[:20]  # Top 20 partidos
+                else:
+                    logger.info("⚠️ FlashScore: Sin partidos en vivo")
+                    return []
+            else:
+                logger.warning(f"⚠️ FlashScore: Status {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.debug(f"FlashScore scraper: {str(e)[:80]}")
+            return []
+
 def generar_partidos_simulados_realistas():
     """Genera partidos realistas simulados como fallback cuando no hay APIs disponibles"""
     # Equipos y ligas populares
@@ -1076,6 +1112,13 @@ def procesar_partidos_en_vivo():
         if matches_api:
             api_source = "SportMonk"
             logger.info(f"📊 Usando SportMonk: {len(matches_api)} partidos EN VIVO")
+
+        # 1️⃣ FlashScore Web Scraper (cobertura total - incluyendo ligas menores)
+        if not matches_api:
+            matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "FlashScore (Scraper)"
+                logger.info(f"📊 Usando FlashScore Scraper: {len(matches_api)} partidos EN VIVO")
 
         # 2️⃣ SofaScore (cobertura global 500+ ligas)
         if not matches_api:
