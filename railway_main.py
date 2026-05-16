@@ -1212,6 +1212,146 @@ def webhook_test():
         logger.error(f"Error en webhook_test: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/webhook/test-matches', methods=['GET'])
+def webhook_test_matches():
+    """Endpoint de prueba: simula partidos EN VIVO realistas para verificar que todo funciona"""
+    try:
+        logger.info("🧪 PRUEBA: Simulando partidos en vivo realistas...")
+
+        # Datos de prueba realistas - partidos en vivo simulados
+        test_matches = [
+            {
+                "match_name": "Barcelona vs Real Madrid",
+                "league": "La Liga",
+                "minute": 35,
+                "score": "1-0",
+                "xg_home": 1.8,
+                "xg_away": 0.9,
+                "shots_home": 7,
+                "shots_away": 4,
+                "shots_on_target_home": 4,
+                "shots_on_target_away": 1,
+                "possession_home": 62,
+                "possession_away": 38,
+                "odds_over_1": 1.88
+            },
+            {
+                "match_name": "Manchester City vs Liverpool",
+                "league": "Premier League",
+                "minute": 52,
+                "score": "2-1",
+                "xg_home": 2.3,
+                "xg_away": 1.7,
+                "shots_home": 9,
+                "shots_away": 8,
+                "shots_on_target_home": 5,
+                "shots_on_target_away": 3,
+                "possession_home": 58,
+                "possession_away": 42,
+                "odds_over_1": 1.82
+            },
+            {
+                "match_name": "Bayern Munich vs Borussia Dortmund",
+                "league": "Bundesliga",
+                "minute": 67,
+                "score": "1-1",
+                "xg_home": 2.1,
+                "xg_away": 1.9,
+                "shots_home": 12,
+                "shots_away": 10,
+                "shots_on_target_home": 6,
+                "shots_on_target_away": 4,
+                "possession_home": 55,
+                "possession_away": 45,
+                "odds_over_1": 1.75
+            }
+        ]
+
+        results = {
+            "status": "ok",
+            "message": "Prueba con datos realistas simulados",
+            "matches_tested": len(test_matches),
+            "test_results": []
+        }
+
+        # Procesar cada partido de prueba
+        for match in test_matches:
+            try:
+                metricas = SportAnalyzer.calcular_metricas(match)
+                poisson = PoissonModel.evaluar_partido(
+                    metricas["xg_total"],
+                    metricas["tiros_totales"],
+                    match["minute"],
+                    match["odds_over_1"]
+                )
+
+                score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
+
+                result = {
+                    "match": match["match_name"],
+                    "league": match["league"],
+                    "minute": match["minute"],
+                    "score": match["score"],
+                    "xg_total": metricas["xg_total"],
+                    "shots": metricas["tiros_totales"],
+                    "lambda": poisson.lambda_final,
+                    "p_gol": poisson.p_gol,
+                    "p_mercado": poisson.p_mercado,
+                    "value": poisson.value,
+                    "recommendation": poisson.recomendacion,
+                    "alert_triggered": poisson.value >= 8.0,
+                    "level": level,
+                    "score": score_alerta
+                }
+
+                results["test_results"].append(result)
+
+                # Si value >= 8.0 y Telegram está configurado, enviar alerta
+                if poisson.value >= 8.0 and bot:
+                    logger.info(f"🔔 ALERTA TEST: {match['match_name']} (Value: {poisson.value}%)")
+                    alert_data = AlertData(
+                        partido=match["match_name"],
+                        liga=match["league"],
+                        minuto=match["minute"],
+                        marcador=match["score"],
+                        level=level,
+                        score_final=score_alerta,
+                        momentum=metricas["momentum"],
+                        xg_total=metricas["xg_total"],
+                        tiros=metricas["tiros_totales"],
+                        tiros_puerta=metricas.get("tiros_puerta", 0),
+                        dominancia=metricas["dominancia"],
+                        eficiencia=metricas["eficiencia"],
+                        lambda_final=poisson.lambda_final,
+                        p_gol=poisson.p_gol,
+                        p_mercado=poisson.p_mercado,
+                        value=poisson.value,
+                        recomendacion=poisson.recomendacion,
+                        timestamp=datetime.now().isoformat()
+                    )
+                    asyncio.run(enviar_alerta_telegram(alert_data))
+
+            except Exception as e:
+                logger.error(f"Error procesando test match {match['match_name']}: {e}")
+                results["test_results"].append({
+                    "match": match["match_name"],
+                    "error": str(e)[:100]
+                })
+
+        # Resumen
+        results["summary"] = {
+            "total_tested": len(test_matches),
+            "alerts_triggered": sum(1 for r in results["test_results"] if r.get("alert_triggered")),
+            "alerts_sent": "Sí" if any(r.get("alert_triggered") for r in results["test_results"]) and bot else "No"
+        }
+
+        logger.info(f"✅ Prueba completada: {results['summary']}")
+        return jsonify(results), 200
+
+    except Exception as e:
+        logger.error(f"Error en webhook_test_matches: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/webhook/best-match', methods=['POST', 'GET'])
 def webhook_best_match():
     """Endpoint para obtener y enviar el MEJOR partido en vivo AHORA (cobertura global)"""
