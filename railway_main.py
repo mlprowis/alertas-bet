@@ -45,6 +45,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "2410007")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
 RAPIDAPI_HOST = "free-api-live-football-data.p.rapidapi.com"
+SPORTMONK_API_KEY = os.getenv("SPORTMONK_API_KEY", "THM6jVCaaP9b4Isr0cJUMAuCPTVEfU8DgNxyELpsPxPVgT3Y5ww5N6HNFZ5T")
 
 logger.info(f"🚀 Configuración Railway: PORT={PORT}")
 logger.info(f"📱 Telegram Token: {'✓ Configurado' if TELEGRAM_TOKEN else '⚠️ NO CONFIGURADO'}")
@@ -299,7 +300,116 @@ Timestamp: {alert.timestamp}"""
         logger.error(f"✗ Error enviando a Telegram: {e}", exc_info=True)
         return False
 
-# ============ SOFASCORE API - Cobertura global 500+ ligas (PRIMARIO) ============
+# ============ SPORTMONK API - Datos EN VIVO confiables (PRIMARIO) ============
+class SportMonkAPI:
+    """Integración con SportMonk API - Datos EN VIVO reales y confiables"""
+
+    BASE_URL = "https://api.sportmonks.com/v3/football"
+
+    @staticmethod
+    def obtener_partidos_en_vivo() -> list:
+        """Obtiene partidos EN VIVO de SportMonk"""
+        if not SPORTMONK_API_KEY:
+            logger.warning("⚠️ SportMonk API Key no configurado")
+            return []
+
+        try:
+            logger.info("🔍 Obteniendo partidos EN VIVO de SportMonk...")
+
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            tomorrow = (datetime.now() + __import__('datetime').timedelta(days=1)).strftime("%Y-%m-%d")
+
+            url = f"{SportMonkAPI.BASE_URL}/fixtures/between/{today}/{tomorrow}"
+            params = {"api_token": SPORTMONK_API_KEY, "include": "teams,league,state"}
+
+            response = requests.get(url, params=params, timeout=15)
+
+            if response.status_code == 200:
+                data = response.json()
+                fixtures = data.get("data", [])
+
+                # Filtrar solo partidos EN VIVO (status id = 2 o "inplay")
+                live_matches = [
+                    f for f in fixtures
+                    if f.get("status_code") == "INPLAY" or f.get("state_id") == 2
+                ]
+
+                if live_matches:
+                    logger.info(f"✅ SportMonk: {len(live_matches)} partidos EN VIVO encontrados")
+                    return live_matches
+                else:
+                    logger.info(f"⚠️ SportMonk: Sin partidos EN VIVO en este momento (total: {len(fixtures)} partidos)")
+                    return []
+            else:
+                logger.warning(f"⚠️ SportMonk: Status {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error en SportMonk: {str(e)[:100]}")
+            return []
+
+    @staticmethod
+    def procesar_partido_real(match: dict) -> Dict[str, Any]:
+        """Transforma datos de SportMonk al formato de AlertasBet"""
+        try:
+            if not isinstance(match, dict):
+                return None
+
+            # Equipos
+            home = match.get("home_team", {})
+            away = match.get("away_team", {})
+            home_name = home.get("name", "Team A") if isinstance(home, dict) else home
+            away_name = away.get("name", "Team B") if isinstance(away, dict) else away
+            match_name = f"{home_name} vs {away_name}"
+
+            # Score
+            score_obj = match.get("scores", {})
+            home_goals = score_obj.get("home", 0) if isinstance(score_obj, dict) else 0
+            away_goals = score_obj.get("away", 0) if isinstance(score_obj, dict) else 0
+            score = f"{home_goals}-{away_goals}"
+
+            # Minuto
+            minute = match.get("minute", 45)
+            if not isinstance(minute, int) or minute < 0:
+                minute = 45
+
+            # Liga
+            league = match.get("league", {})
+            league_name = league.get("name", "Unknown") if isinstance(league, dict) else league
+
+            # Estadísticas estimadas
+            total_goals = home_goals + away_goals
+            stats = estimar_estadisticas_inteligentes(minute, total_goals, league_name)
+
+            # Cuota
+            goal_rate = total_goals / max(1, minute) if minute > 0 else 0.5
+            projected_goals = goal_rate * 90
+            odds_over_1 = 1.9 + (0.6 if projected_goals < 2.5 else -0.3 if projected_goals > 3.5 else 0.0)
+            odds_over_1 = max(1.05, min(2.50, odds_over_1))
+
+            return {
+                "match_name": match_name,
+                "league": league_name,
+                "minute": minute,
+                "score": score,
+                "xg_home": stats["xg_home"],
+                "xg_away": stats["xg_away"],
+                "shots_home": stats["shots_home"],
+                "shots_away": stats["shots_away"],
+                "shots_on_target_home": stats["shots_on_target_home"],
+                "shots_on_target_away": stats["shots_on_target_away"],
+                "possession_home": stats["possession_home"],
+                "possession_away": 100 - stats["possession_home"],
+                "odds_over_1": odds_over_1,
+                "match_id": match.get("id"),
+                "source": "SportMonk (REAL)"
+            }
+        except Exception as e:
+            logger.error(f"Error procesando partido SportMonk: {e}")
+            return None
+
+# ============ SOFASCORE API - Cobertura global 500+ ligas ============
 class SofaScoreAPI:
     """SofaScore API - Cobertura global de 500+ ligas en vivo, sin rate limits estrictos"""
 
@@ -1103,42 +1213,49 @@ def procesar_partidos_en_vivo():
         matches_api = None
         api_source = None
 
-        # 0️⃣ FlashScore Web Scraper (PRIMERO - datos reales EN VIVO con Playwright)
-        if PLAYWRIGHT_AVAILABLE:
-            matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
-            if matches_api:
-                api_source = "FlashScore (Scraper)"
-                logger.info(f"📊 Usando FlashScore Scraper: {len(matches_api)} partidos EN VIVO")
+        # 0️⃣ SportMonk API (PRIMERO - Datos EN VIVO confiables)
+        matches_api = SportMonkAPI.obtener_partidos_en_vivo()
+        if matches_api:
+            api_source = "SportMonk"
+            logger.info(f"📊 Usando SportMonk: {len(matches_api)} partidos EN VIVO")
 
-        # 1️⃣ SofaScore (cobertura global 500+ ligas)
+        # 1️⃣ FlashScore Web Scraper (SEGUNDO - datos reales EN VIVO con Playwright)
+        if not matches_api:
+            if PLAYWRIGHT_AVAILABLE:
+                matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
+                if matches_api:
+                    api_source = "FlashScore (Scraper)"
+                    logger.info(f"📊 Usando FlashScore Scraper: {len(matches_api)} partidos EN VIVO")
+
+        # 3️⃣ SofaScore (cobertura global 500+ ligas)
         if not matches_api:
             matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "SofaScore"
                 logger.info(f"📊 Usando SofaScore: {len(matches_api)} partidos")
 
-        # 2️⃣ API-Football RapidAPI (600+ ligas, si tiene API_SPORTS_KEY)
+        # 4️⃣ API-Football RapidAPI (600+ ligas, si tiene API_SPORTS_KEY)
         if not matches_api:
             matches_api = APIFootballRapid.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "API-Football"
                 logger.info(f"📊 Usando API-Football: {len(matches_api)} partidos")
 
-        # 3️⃣ FlashScore (Bet365-like coverage)
+        # 5️⃣ FlashScore (Bet365-like coverage)
         if not matches_api:
             matches_api = FlashScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "FlashScore"
                 logger.info(f"📊 Usando FlashScore: {len(matches_api)} partidos")
 
-        # 4️⃣ LiveFootballAPI (RapidAPI original - 2100+ ligas)
+        # 6️⃣ LiveFootballAPI (RapidAPI original - 2100+ ligas)
         if not matches_api:
             matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "RapidAPI"
                 logger.info(f"📊 Usando RapidAPI: {len(matches_api)} partidos")
 
-        # 5️⃣ FootballDataAPI (football-data.org - fallback)
+        # 7️⃣ FootballDataAPI (football-data.org - fallback)
         if not matches_api:
             matches_api = FootballDataAPI.obtener_partidos_en_vivo()
             if matches_api:
@@ -1164,7 +1281,9 @@ def procesar_partidos_en_vivo():
                     match_data = None
 
                     # Intentar con la API que entregó los datos primero
-                    if api_source == "FlashScore (Scraper)":
+                    if api_source == "SportMonk":
+                        match_data = SportMonkAPI.procesar_partido_real(match_api)
+                    elif api_source == "FlashScore (Scraper)":
                         # Los datos del scraper ya están en formato correcto
                         match_data = match_api
                     elif api_source == "SofaScore":
@@ -1656,37 +1775,43 @@ def webhook_best_match():
         matches_api = None
         api_source = None
 
-        # 0️⃣ FlashScore Web Scraper (PRIMERO - datos reales EN VIVO)
-        if PLAYWRIGHT_AVAILABLE:
-            matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
-            if matches_api:
-                api_source = "FlashScore (Scraper)"
+        # 0️⃣ SportMonk API (PRIMARIO - Datos EN VIVO confiables)
+        matches_api = SportMonkAPI.obtener_partidos_en_vivo()
+        if matches_api:
+            api_source = "SportMonk"
 
-        # 1️⃣ SofaScore
+        # 1️⃣ FlashScore Web Scraper (SEGUNDO - datos reales EN VIVO)
+        if not matches_api:
+            if PLAYWRIGHT_AVAILABLE:
+                matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
+                if matches_api:
+                    api_source = "FlashScore (Scraper)"
+
+        # 2️⃣ SofaScore
         if not matches_api:
             matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "SofaScore"
 
-        # 2️⃣ API-Football
+        # 3️⃣ API-Football
         if not matches_api:
             matches_api = APIFootballRapid.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "API-Football"
 
-        # 3️⃣ FlashScore
+        # 4️⃣ FlashScore API
         if not matches_api:
             matches_api = FlashScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "FlashScore"
 
-        # 4️⃣ RapidAPI
+        # 5️⃣ RapidAPI
         if not matches_api:
             matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "RapidAPI"
 
-        # 5️⃣ football-data.org
+        # 6️⃣ football-data.org
         if not matches_api:
             matches_api = FootballDataAPI.obtener_partidos_en_vivo()
             if matches_api:
