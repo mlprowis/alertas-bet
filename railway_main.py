@@ -384,35 +384,47 @@ class FootballDataAPI:
 
     @staticmethod
     def obtener_partidos_en_vivo() -> list:
-        """Obtiene partidos en vivo de football-data.org"""
+        """Obtiene partidos en vivo de football-data.org (intenta múltiples endpoints)"""
         try:
-            # Endpoint de partidos en vivo
-            url = f"{FootballDataAPI.BASE_URL}/matches?status=LIVE"
-
             headers = {}
             if FootballDataAPI.API_KEY:
                 headers["X-Auth-Token"] = FootballDataAPI.API_KEY
 
+            # Intentar múltiples endpoints en cascada
+            endpoints = [
+                "/matches?status=LIVE",
+                "/matches?status=IN_PLAY",
+                "/matches?status=PAUSED",
+                "/matches"  # Sin filtro, filtrar en código
+            ]
+
             logger.info(f"🔍 Obteniendo partidos EN VIVO de football-data.org...")
-            response = requests.get(url, headers=headers, timeout=10)
 
-            logger.info(f"   Status: {response.status_code}")
+            for endpoint in endpoints:
+                try:
+                    url = f"{FootballDataAPI.BASE_URL}{endpoint}"
+                    logger.info(f"   Intentando: {endpoint}")
+                    response = requests.get(url, headers=headers, timeout=10)
 
-            if response.status_code == 200:
-                data = response.json()
-                matches = data.get("matches", [])
+                    if response.status_code == 200:
+                        data = response.json()
+                        matches = data.get("matches", [])
 
-                if matches and len(matches) > 0:
-                    logger.info(f"✅ football-data.org: {len(matches)} partidos EN VIVO encontrados")
-                    return matches
-                else:
-                    logger.info(f"⚠️ football-data.org: Sin partidos en vivo en este momento")
-                    return []
-            else:
-                logger.warning(f"⚠️ football-data.org: Status {response.status_code}")
-                if response.status_code == 429:
-                    logger.warning("   Rate limited - esperar")
-                return []
+                        # Si es el endpoint sin filtro, filtrar en código
+                        if "status=" not in endpoint and matches:
+                            matches = [m for m in matches if m.get("status") in ["LIVE", "IN_PLAY", "PAUSED"]]
+
+                        if matches and len(matches) > 0:
+                            logger.info(f"✅ football-data.org ({endpoint}): {len(matches)} partidos EN VIVO")
+                            return matches
+                    elif response.status_code == 429:
+                        logger.debug(f"   Rate limited en {endpoint}")
+                except Exception as e:
+                    logger.debug(f"   Error en {endpoint}: {str(e)[:50]}")
+                    continue
+
+            logger.info(f"⚠️ football-data.org: Sin partidos en vivo en este momento")
+            return []
 
         except Exception as e:
             logger.error(f"Error en football-data.org: {str(e)[:100]}")
@@ -447,14 +459,17 @@ class FootballDataAPI:
             competition = match_data.get("competition", {})
             league_name = competition.get("name", "Unknown League") if isinstance(competition, dict) else "Unknown League"
 
-            # Estadísticas estimadas (football-data.org no proporciona xG)
-            xg_home = 1.5 + random.uniform(-0.5, 0.5)
-            xg_away = 1.3 + random.uniform(-0.5, 0.5)
-            shots_home = 8
-            shots_away = 6
-            shots_on_target_home = 4
-            shots_on_target_away = 3
-            possession_home = 55
+            # Estadísticas estimadas inteligentemente (football-data.org no proporciona xG)
+            goals_total = home_goals + away_goals
+            stats_estimadas = estimar_estadisticas_inteligentes(minute, goals_total)
+
+            xg_home = stats_estimadas["xg_home"]
+            xg_away = stats_estimadas["xg_away"]
+            shots_home = stats_estimadas["shots_home"]
+            shots_away = stats_estimadas["shots_away"]
+            shots_on_target_home = stats_estimadas["shots_on_target_home"]
+            shots_on_target_away = stats_estimadas["shots_on_target_away"]
+            possession_home = stats_estimadas["possession_home"]
 
             # Cuota realista basada en el score actual
             goals_total = home_goals + away_goals
@@ -824,6 +839,58 @@ class FlashScoreAPI:
         except Exception as e:
             logger.error(f"Error procesando partido FlashScore: {e}")
             return None
+
+def estimar_estadisticas_inteligentes(minute: int, goals_total: int) -> Dict[str, Any]:
+    """Estima estadísticas realistas basadas en minuto del partido y goles actuales"""
+    try:
+        # Ajustar estimaciones según fase del partido
+        if minute < 30:
+            # Primer tiempo temprano: menos xG
+            xg_home = 0.8 + random.uniform(-0.2, 0.3)
+            xg_away = 0.7 + random.uniform(-0.2, 0.3)
+            shots_home = 4 + random.randint(-1, 2)
+
+        elif minute < 60:
+            # Mitad del partido: xG moderado
+            xg_home = 1.2 + random.uniform(-0.3, 0.5)
+            xg_away = 1.0 + random.uniform(-0.3, 0.5)
+            shots_home = 6 + random.randint(-2, 3)
+
+        else:
+            # Segundo tiempo: más xG según goles
+            xg_home = 1.5 + (goals_total * 0.3) + random.uniform(-0.4, 0.6)
+            xg_away = 1.3 + (goals_total * 0.2) + random.uniform(-0.4, 0.6)
+            shots_home = 8 + random.randint(-2, 4)
+
+        # Calcular tiros a puerta proporcionalmente
+        shots_on_target_home = max(1, int(shots_home * random.uniform(0.35, 0.55)))
+        shots_away = max(3, int(xg_away * random.uniform(3, 5)))
+        shots_on_target_away = max(1, int(shots_away * random.uniform(0.35, 0.55)))
+
+        # Posesión realista
+        possession_home = 45 + random.randint(-15, 25)
+
+        return {
+            "xg_home": max(0.1, xg_home),
+            "xg_away": max(0.1, xg_away),
+            "shots_home": max(3, int(shots_home)),
+            "shots_away": max(3, int(shots_away)),
+            "shots_on_target_home": max(1, shots_on_target_home),
+            "shots_on_target_away": max(1, shots_on_target_away),
+            "possession_home": max(30, min(70, possession_home))
+        }
+    except Exception as e:
+        logger.debug(f"Error en estimación: {e}")
+        # Retornar defaults si falla
+        return {
+            "xg_home": 1.5,
+            "xg_away": 1.2,
+            "shots_home": 6,
+            "shots_away": 5,
+            "shots_on_target_home": 3,
+            "shots_on_target_away": 2,
+            "possession_home": 50
+        }
 
 def procesar_partidos_en_vivo():
     """Obtiene y procesa partidos en vivo REALES de múltiples APIs (cobertura global)"""
