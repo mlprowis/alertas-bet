@@ -1355,7 +1355,7 @@ def procesar_partidos_en_vivo():
 def health():
     """Health check - endpoint para verificar que la app está viva"""
     return jsonify({
-        "status": "healthy",
+        "status": "ALIVE-20260516-FORCE-REDEPLOY",
         "service": "AlertasBet Webhook",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.1-TELEGRAM-FIX",
