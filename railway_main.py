@@ -41,8 +41,9 @@ logger = logging.getLogger(__name__)
 
 # ============ CONFIGURACIÓN ============
 PORT = int(os.getenv("PORT", 5000))
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "2410007")
+# Hardcodear Telegram para garantizar que funciona
+TELEGRAM_TOKEN = "8099120388:AAF2QCqrbvOh7CvGg8VWVUjloQKJOOCuQ7g"
+TELEGRAM_CHAT_ID = "2410007"
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
 RAPIDAPI_HOST = "free-api-live-football-data.p.rapidapi.com"
 SPORTMONK_API_KEY = os.getenv("SPORTMONK_API_KEY", "THM6jVCaaP9b4Isr0cJUMAuCPTVEfU8DgNxyELpsPxPVgT3Y5ww5N6HNFZ5T")
