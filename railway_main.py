@@ -1525,30 +1525,21 @@ def webhook_force_alert():
 
 @app.route('/webhook/test', methods=['POST', 'GET'])
 def webhook_test():
-    """Endpoint de test ULTRA SIMPLE - solo envía a Telegram"""
+    """Endpoint de test - Envía mensaje a Telegram directamente"""
+    import requests as req_module
+
+    token = "8099120388:AAF2QCqrbvOh7CvGg8VWVUjloQKJOOCuQ7g"
+    chat = "2410007"
+
     try:
-        logger.info("[TEST ULTRA] Iniciando")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = {"chat_id": int(chat), "text": "TEST MESSAGE FROM ALERTAS-BET"}
 
-        # Enviar mensaje AHORA MISMO sin lógica adicional
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": int(TELEGRAM_CHAT_ID),
-            "text": "TEST ULTRA SIMPLE - If you see this, the bot works!"
-        }
+        r = req_module.post(url, json=data, timeout=10)
 
-        logger.info(f"[TEST ULTRA] POST to Telegram with token len={len(TELEGRAM_TOKEN)}, chat={TELEGRAM_CHAT_ID}")
-        resp = requests.post(url, json=payload, timeout=10)
-        logger.info(f"[TEST ULTRA] Response code: {resp.status_code}, Response: {resp.text[:200]}")
-
-        return jsonify({
-            "status": "ok",
-            "telegram_response": resp.status_code,
-            "telegram_ok": resp.status_code == 200
-        }), 200
-
+        return {"status": "sent", "code": r.status_code, "ok": r.status_code == 200}
     except Exception as e:
-        logger.error(f"[TEST ULTRA] Exception: {e}", exc_info=True)
-        return jsonify({"status": "error", "error": str(e)}), 500
+        return {"status": "error", "error": str(e)}
 
 @app.route('/webhook/test-matches', methods=['GET'])
 def webhook_test_matches():
