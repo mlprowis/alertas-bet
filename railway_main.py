@@ -1392,61 +1392,123 @@ def status():
 
 @app.route('/webhook/diagnose', methods=['GET'])
 def webhook_diagnose():
-    """Endpoint para diagnosticar problemas con RapidAPI"""
+    """Endpoint para diagnosticar TODAS las APIs y mostrar exactamente qué está fallando"""
     try:
-        logger.info("🧪 Iniciando diagnóstico de RapidAPI...")
+        logger.info("🧪 Iniciando diagnóstico COMPLETO de todas las APIs...")
 
         results = {
-            "rapidapi_configured": bool(RAPIDAPI_KEY),
-            "rapidapi_key_sample": f"{RAPIDAPI_KEY[:20]}...***" if RAPIDAPI_KEY else "NO CONFIGURADO",
-            "rapidapi_host": RAPIDAPI_HOST,
-            "endpoints_tested": {}
+            "timestamp": datetime.now().isoformat(),
+            "environment": {
+                "FOOTBALL_DATA_API_KEY": "✓ CONFIGURADO" if os.getenv("FOOTBALL_DATA_API_KEY") else "❌ NO CONFIGURADO",
+                "RAPIDAPI_KEY": "✓ CONFIGURADO" if RAPIDAPI_KEY else "❌ NO CONFIGURADO",
+                "API_SPORTS_KEY": "✓ CONFIGURADO" if os.getenv("API_SPORTS_KEY") else "❌ NO CONFIGURADO",
+                "FLASHSCORE_KEY": "✓ CONFIGURADO" if os.getenv("FLASHSCORE_KEY") else "❌ NO CONFIGURADO",
+                "TELEGRAM_TOKEN": "✓ CONFIGURADO" if TELEGRAM_TOKEN else "❌ NO CONFIGURADO",
+                "TELEGRAM_CHAT_ID": "✓ CONFIGURADO" if TELEGRAM_CHAT_ID else "❌ NO CONFIGURADO",
+            },
+            "api_tests": {}
         }
 
-        # Probar endpoints
-        endpoints = ["/matches", "/live", "/liveMatches", "/fixtures"]
+        # 1️⃣ Probar FootballDataAPI (la que está mejorada con smart estimation)
+        logger.info("🔍 Probando FootballDataAPI...")
+        try:
+            matches = FootballDataAPI.obtener_partidos_en_vivo()
+            results["api_tests"]["FootballDataAPI"] = {
+                "status": "✓ FUNCIONA" if matches else "⚠️ SIN DATOS",
+                "matches_found": len(matches) if matches else 0,
+                "error": None
+            }
+        except Exception as e:
+            results["api_tests"]["FootballDataAPI"] = {
+                "status": "❌ ERROR",
+                "error": str(e)[:100]
+            }
 
-        for endpoint in endpoints:
-            url = f"https://{RAPIDAPI_HOST}{endpoint}"
-            logger.info(f"🔍 Probando: {url}")
+        # 2️⃣ Probar SofaScoreAPI
+        logger.info("🔍 Probando SofaScoreAPI...")
+        try:
+            matches = SofaScoreAPI.obtener_partidos_en_vivo()
+            results["api_tests"]["SofaScoreAPI"] = {
+                "status": "✓ FUNCIONA" if matches else "⚠️ SIN DATOS",
+                "matches_found": len(matches) if matches else 0,
+                "error": None
+            }
+        except Exception as e:
+            results["api_tests"]["SofaScoreAPI"] = {
+                "status": "❌ ERROR",
+                "error": str(e)[:100]
+            }
 
-            try:
-                headers = {
-                    "X-RapidAPI-Key": RAPIDAPI_KEY,
-                    "X-RapidAPI-Host": RAPIDAPI_HOST
-                }
+        # 3️⃣ Probar APIFootballRapid (requiere API_SPORTS_KEY)
+        logger.info("🔍 Probando APIFootballRapid...")
+        try:
+            matches = APIFootballRapid.obtener_partidos_en_vivo()
+            results["api_tests"]["APIFootballRapid"] = {
+                "status": "✓ FUNCIONA" if matches else "⚠️ SIN DATOS",
+                "matches_found": len(matches) if matches else 0,
+                "error": None
+            }
+        except Exception as e:
+            results["api_tests"]["APIFootballRapid"] = {
+                "status": "❌ ERROR",
+                "error": str(e)[:100]
+            }
 
-                response = requests.get(url, headers=headers, timeout=10)
+        # 4️⃣ Probar FlashScoreAPI (requiere RAPIDAPI_KEY)
+        logger.info("🔍 Probando FlashScoreAPI...")
+        try:
+            matches = FlashScoreAPI.obtener_partidos_en_vivo()
+            results["api_tests"]["FlashScoreAPI"] = {
+                "status": "✓ FUNCIONA" if matches else "⚠️ SIN DATOS",
+                "matches_found": len(matches) if matches else 0,
+                "error": None
+            }
+        except Exception as e:
+            results["api_tests"]["FlashScoreAPI"] = {
+                "status": "❌ ERROR",
+                "error": str(e)[:100]
+            }
 
-                results["endpoints_tested"][endpoint] = {
-                    "status_code": response.status_code,
-                    "success": response.status_code == 200
-                }
+        # 5️⃣ Probar LiveFootballAPI (requiere RAPIDAPI_KEY)
+        logger.info("🔍 Probando LiveFootballAPI...")
+        try:
+            matches = LiveFootballAPI.obtener_partidos_en_vivo()
+            results["api_tests"]["LiveFootballAPI"] = {
+                "status": "✓ FUNCIONA" if matches else "⚠️ SIN DATOS",
+                "matches_found": len(matches) if matches else 0,
+                "error": None
+            }
+        except Exception as e:
+            results["api_tests"]["LiveFootballAPI"] = {
+                "status": "❌ ERROR",
+                "error": str(e)[:100]
+            }
 
-                if response.status_code == 200:
-                    data = response.json()
+        # Resumen
+        results["summary"] = {
+            "total_apis": 5,
+            "working_apis": sum(1 for api in results["api_tests"].values() if "FUNCIONA" in api["status"]),
+            "api_with_data": sum(1 for api in results["api_tests"].values() if api.get("matches_found", 0) > 0),
+            "recommendation": ""
+        }
 
-                    # Analizar estructura
-                    if isinstance(data, dict):
-                        matches_data = data.get("data", data.get("matches", []))
-                        results["endpoints_tested"][endpoint]["data_type"] = "dict"
-                        results["endpoints_tested"][endpoint]["match_count"] = len(matches_data) if isinstance(matches_data, list) else 0
+        # Generar recomendación
+        if results["api_tests"].get("FootballDataAPI", {}).get("matches_found", 0) > 0:
+            results["summary"]["recommendation"] = "✅ FootballDataAPI está funcionando con partidos en vivo"
+        elif RAPIDAPI_KEY:
+            if results["api_tests"].get("LiveFootballAPI", {}).get("matches_found", 0) > 0:
+                results["summary"]["recommendation"] = "✅ RapidAPI (LiveFootballAPI) está funcionando"
+            else:
+                results["summary"]["recommendation"] = "⚠️ RAPIDAPI_KEY configurada pero sin partidos en vivo. Posible: no hay matches en este momento, o key inválida"
+        else:
+            results["summary"]["recommendation"] = "❌ RAPIDAPI_KEY no configurada. Necesario configurar en Railway para RapidAPI. O configurar FOOTBALL_DATA_API_KEY para football-data.org"
 
-                        if isinstance(matches_data, list) and matches_data:
-                            results["endpoints_tested"][endpoint]["sample_match"] = {
-                                "keys": list(matches_data[0].keys()),
-                                "first_item": str(matches_data[0])[:200]
-                            }
+        logger.info(f"📊 Diagnóstico completado: {results['summary']}")
+        return jsonify(results), 200
 
-                    elif isinstance(data, list):
-                        results["endpoints_tested"][endpoint]["data_type"] = "list"
-                        results["endpoints_tested"][endpoint]["match_count"] = len(data)
-
-                        if data:
-                            results["endpoints_tested"][endpoint]["sample_match"] = {
-                                "keys": list(data[0].keys()) if isinstance(data[0], dict) else "N/A",
-                                "first_item": str(data[0])[:200]
-                            }
+    except Exception as e:
+        logger.error(f"Error en diagnóstico: {e}", exc_info=True)
+        return jsonify({"error": str(e)[:100]}), 500
 
                 logger.info(f"✅ {endpoint} retornó {response.status_code}")
 
