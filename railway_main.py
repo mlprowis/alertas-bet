@@ -251,7 +251,34 @@ def enviar_alerta_telegram(alert: AlertData) -> bool:
         return False
 
     try:
-        mensaje = f"⚽ {alert.partido}\nLiga: {alert.liga}\nValue: {alert.value:.1f}%"
+        # Mensaje formateado completo con TODA la información
+        nivel_emoji = "🟢" if alert.level == AlertLevel.FUERTE else "🟡" if alert.level == AlertLevel.MEDIO else "🟢" if alert.level == AlertLevel.CRITICO else "🔴"
+
+        mensaje = f"""{nivel_emoji} {alert.level.name}
+
+⚽ {alert.partido}
+📊 Liga: {alert.liga}
+🕐 Minuto: {alert.minuto}
+📈 Marcador: {alert.marcador}
+
+📊 ANÁLISIS:
+  Score: {alert.score_final:.3f}
+  Momentum: {alert.momentum:.2f}
+  xG Total: {alert.xg_total:.2f}
+  Tiros: {alert.tiros} (en puerta: {alert.tiros_puerta})
+  Dominancia: {alert.dominancia:.1f}%
+
+🔬 MODELO POISSON:
+  Lambda: {alert.lambda_final:.3f}
+  P(Gol): {alert.p_gol:.1f}%
+
+💰 OPORTUNIDAD:
+  P(Mercado): {alert.p_mercado:.1f}%
+  VALUE: +{alert.value:.1f}%
+
+✅ {alert.recomendacion}
+
+⏰ {alert.timestamp}"""
 
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
@@ -1073,8 +1100,8 @@ def generar_partidos_simulados_realistas():
     # Aleatorizar qué partidos mostrar (solo 3-4)
     random.shuffle(matchups)
     for match in matchups[:random.randint(3, 4)]:
-        # Generar datos realistas VARIADOS
-        minute = random.randint(8, 88)
+        # Generar datos realistas VARIADOS - MINUTOS INICIALES (0-20) para alertas útiles
+        minute = random.randint(0, 20)
 
         # Score variado
         if random.random() < 0.4:  # 40% sin goles
