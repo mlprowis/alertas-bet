@@ -1653,6 +1653,12 @@ def webhook_best_match():
             if matches_api:
                 api_source = "football-data.org"
 
+        # FALLBACK: Si no hay datos reales, usar datos realistas simulados
+        if not matches_api:
+            logger.warning("⚠️ Ninguna API retorna datos - Usando fallback realista")
+            matches_api = generar_partidos_simulados_realistas()
+            api_source = "SIMULADO (fallback realista)"
+
         if not matches_api:
             logger.error("❌ NO HAY PARTIDOS EN VIVO - Todas las APIs retornan 0 partidos")
             return jsonify({
