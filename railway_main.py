@@ -316,9 +316,9 @@ class SportMonkAPI:
         try:
             logger.info("🔍 Obteniendo partidos EN VIVO de SportMonk...")
 
-            from datetime import datetime
+            from datetime import datetime, timedelta
             today = datetime.now().strftime("%Y-%m-%d")
-            tomorrow = (datetime.now() + __import__('datetime').timedelta(days=1)).strftime("%Y-%m-%d")
+            tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
             url = f"{SportMonkAPI.BASE_URL}/fixtures/between/{today}/{tomorrow}"
             params = {"api_token": SPORTMONK_API_KEY, "include": "teams,league,state"}
