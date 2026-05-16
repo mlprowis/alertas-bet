@@ -246,52 +246,57 @@ class SportAnalyzer:
         return score, level
 
 # ============ TELEGRAM ALERTS ============
-async def enviar_alerta_telegram(alert: AlertData) -> bool:
-    """Envía alerta formateada a Telegram"""
-    if not bot:
-        logger.warning("Bot Telegram no disponible")
+def enviar_alerta_telegram(alert: AlertData) -> bool:
+    """Envía alerta formateada a Telegram (sincrónico)"""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning("Bot Telegram no configurado")
         return False
 
     try:
         mensaje = f"""{alert.level.value} <b>{alert.level.name}</b>
 
 <b>⚽ {alert.partido}</b>
-📊 Liga: {alert.liga}
-🕐 Minuto: {alert.minuto}
-📈 Marcador: {alert.marcador}
+Liga: {alert.liga}
+Minuto: {alert.minuto}
+Marcador: {alert.marcador}
 
-<b>📊 ANÁLISIS:</b>
-  Score: {alert.score_final:.3f}
-  Momentum: {alert.momentum:.2f}
-  xG Total: {alert.xg_total:.2f}
-  Tiros: {alert.tiros} (en puerta: {alert.tiros_puerta})
-  Dominancia: {alert.dominancia:.1f}%
+<b>ANALISIS:</b>
+Score: {alert.score_final:.3f}
+Momentum: {alert.momentum:.2f}
+xG Total: {alert.xg_total:.2f}
+Tiros: {alert.tiros} (en puerta: {alert.tiros_puerta})
+Dominancia: {alert.dominancia:.1f}%
 
-<b>🔬 MODELO POISSON:</b>
-  Lambda: {alert.lambda_final:.3f}
-  P(Gol): {alert.p_gol:.1f}%
+<b>MODELO POISSON:</b>
+Lambda: {alert.lambda_final:.3f}
+P(Gol): {alert.p_gol:.1f}%
 
-<b>💰 OPORTUNIDAD:</b>
-  P(Mercado): {alert.p_mercado:.1f}%
-  VALUE: <b>+{alert.value:.1f}%</b>
+<b>OPORTUNIDAD:</b>
+P(Mercado): {alert.p_mercado:.1f}%
+VALUE: <b>+{alert.value:.1f}%</b>
 
-<b>✅ {alert.recomendacion}</b>
+<b>RECOMENDACION: {alert.recomendacion}</b>
 
-⏰ {alert.timestamp}"""
+Timestamp: {alert.timestamp}"""
 
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=mensaje,
-            parse_mode="HTML"
-        )
-        logger.info(f"✓ Alerta enviada a Telegram: {alert.partido}")
-        return True
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": mensaje,
+            "parse_mode": "HTML"
+        }
 
-    except TelegramError as e:
-        logger.error(f"✗ Error enviando a Telegram: {e}")
-        return False
+        response = requests.post(url, json=payload, timeout=10)
+
+        if response.status_code == 200:
+            logger.info(f"✓ Alerta enviada a Telegram: {alert.partido}")
+            return True
+        else:
+            logger.error(f"✗ Error Telegram {response.status_code}: {response.text}")
+            return False
+
     except Exception as e:
-        logger.error(f"✗ Error inesperado: {e}")
+        logger.error(f"✗ Error enviando a Telegram: {e}", exc_info=True)
         return False
 
 # ============ SOFASCORE API - Cobertura global 500+ ligas (PRIMARIO) ============
@@ -1220,7 +1225,7 @@ def procesar_partidos_en_vivo():
                             recomendacion=poisson.recomendacion,
                             timestamp=datetime.now().isoformat()
                         )
-                        asyncio.run(enviar_alerta_telegram(alert_data))
+                        enviar_alerta_telegram(alert_data)
                 else:
                     logger.debug(f"ℹ️ Partido procesado (sin alerta): {match_data['match_name']} (Value: {poisson.value}%)")
 
@@ -1309,7 +1314,7 @@ def webhook_match():
                     timestamp=datetime.now().isoformat()
                 )
                 # Ejecutar de forma asincrónica
-                asyncio.run(enviar_alerta_telegram(alert_data))
+                enviar_alerta_telegram(alert_data)
 
             return jsonify({
                 "status": "alert",
@@ -1385,7 +1390,7 @@ def webhook_force_alert():
                 recomendacion=poisson.recomendacion,
                 timestamp=datetime.now().isoformat()
             )
-            asyncio.run(enviar_alerta_telegram(alert_data))
+            enviar_alerta_telegram(alert_data)
             logger.info(f"✅ ALERTA FORZADA ENVIADA A TELEGRAM: {match_data['match_name']}")
 
         return jsonify({
@@ -1466,7 +1471,7 @@ def webhook_test():
                     timestamp=datetime.now().isoformat()
                 )
                 # Ejecutar de forma asincrónica
-                asyncio.run(enviar_alerta_telegram(alert_data))
+                enviar_alerta_telegram(alert_data)
                 logger.info("✓ Alerta TEST enviada a Telegram exitosamente")
 
         return jsonify({
@@ -1606,7 +1611,7 @@ def webhook_test_matches():
                         recomendacion=poisson.recomendacion,
                         timestamp=datetime.now().isoformat()
                     )
-                    asyncio.run(enviar_alerta_telegram(alert_data))
+                    enviar_alerta_telegram(alert_data)
 
             except Exception as e:
                 logger.error(f"Error procesando test match {match['match_name']}: {e}")
@@ -1785,7 +1790,7 @@ def webhook_best_match():
                     recomendacion=best_match['poisson'].recomendacion,
                     timestamp=datetime.now().isoformat()
                 )
-                asyncio.run(enviar_alerta_telegram(alert_data))
+                enviar_alerta_telegram(alert_data)
                 logger.info("✓ Mejor partido enviado a Telegram")
 
             return jsonify({
