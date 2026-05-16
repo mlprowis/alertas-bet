@@ -1524,80 +1524,30 @@ def webhook_force_alert():
 
 @app.route('/webhook/test', methods=['POST', 'GET'])
 def webhook_test():
-    """Endpoint de test para verificar que la app funciona y envía alertas a Telegram"""
+    """Endpoint de test ULTRA SIMPLE - solo envía a Telegram"""
     try:
-        logger.info("Test webhook llamado")
+        logger.info("[TEST ULTRA] Iniciando")
 
-        # Datos de prueba
-        test_data = {
-            "match_name": "Test Match",
-            "league": "Test League",
-            "minute": 45,
-            "score": "1-1",
-            "xg_home": 1.5,
-            "xg_away": 0.9,
-            "shots_home": 5,
-            "shots_away": 3,
-            "shots_on_target_home": 3,
-            "shots_on_target_away": 2,
-            "possession_home": 55,
-            "possession_away": 45,
-            "odds_over_1": 1.92
+        # Enviar mensaje AHORA MISMO sin lógica adicional
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": int(TELEGRAM_CHAT_ID),
+            "text": "TEST ULTRA SIMPLE - If you see this, the bot works!"
         }
 
-        # Procesar
-        metricas = SportAnalyzer.calcular_metricas(test_data)
-        poisson = PoissonModel.evaluar_partido(
-            metricas["xg_total"],
-            metricas["tiros_totales"],
-            45,
-            1.92
-        )
-
-        # Calcular score y nivel
-        score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
-
-        # Si value >= 8.0, enviar alerta a Telegram
-        if poisson.value >= 8.0:
-            logger.info(f"🔔 ALERTA GENERADA EN TEST: Test Match (Value: {poisson.value}%)")
-
-            # Enviar a Telegram DIRECTAMENTE
-            if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-                try:
-                    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                    payload = {
-                        "chat_id": int(TELEGRAM_CHAT_ID),
-                        "text": f"TEST ALERT: {test_data['match_name']} - Value: {poisson.value:.1f}%"
-                    }
-                    logger.info(f"[TEST] Enviando a Telegram: chat_id={TELEGRAM_CHAT_ID}, token_len={len(TELEGRAM_TOKEN)}")
-                    resp = requests.post(url, json=payload, timeout=10)
-                    logger.info(f"[TEST] Telegram response: {resp.status_code}")
-                    if resp.status_code == 200:
-                        logger.info("✓ TEST Alerta enviada a Telegram exitosamente")
-                    else:
-                        logger.error(f"✗ TEST Telegram error: {resp.text}")
-                except Exception as e:
-                    logger.error(f"✗ TEST Telegram exception: {e}", exc_info=True)
+        logger.info(f"[TEST ULTRA] POST to Telegram with token len={len(TELEGRAM_TOKEN)}, chat={TELEGRAM_CHAT_ID}")
+        resp = requests.post(url, json=payload, timeout=10)
+        logger.info(f"[TEST ULTRA] Response code: {resp.status_code}, Response: {resp.text[:200]}")
 
         return jsonify({
             "status": "ok",
-            "message": "Test exitoso",
-            "alert_sent": poisson.value >= 8.0,
-            "test_data": {
-                "match": "Test Match",
-                "xg_total": metricas["xg_total"],
-                "shots": metricas["tiros_totales"],
-                "lambda": poisson.lambda_final,
-                "p_gol": poisson.p_gol,
-                "p_mercado": poisson.p_mercado,
-                "value": poisson.value,
-                "recommendation": poisson.recomendacion
-            }
+            "telegram_response": resp.status_code,
+            "telegram_ok": resp.status_code == 200
         }), 200
 
     except Exception as e:
-        logger.error(f"Error en webhook_test: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"[TEST ULTRA] Exception: {e}", exc_info=True)
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 @app.route('/webhook/test-matches', methods=['GET'])
 def webhook_test_matches():
