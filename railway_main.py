@@ -1773,6 +1773,21 @@ def webhook_diagnose():
             "api_tests": {}
         }
 
+        # 0️⃣ Probar SportMonkAPI (API PRIMARIA - la más importante)
+        logger.info("🔍 Probando SportMonkAPI (PRIMARIA)...")
+        try:
+            matches = SportMonkAPI.obtener_partidos_en_vivo()
+            results["api_tests"]["SportMonkAPI"] = {
+                "status": "✓ FUNCIONA" if matches else "⚠️ SIN DATOS",
+                "matches_found": len(matches) if matches else 0,
+                "error": None
+            }
+        except Exception as e:
+            results["api_tests"]["SportMonkAPI"] = {
+                "status": "❌ ERROR",
+                "error": str(e)[:100]
+            }
+
         # 1️⃣ Probar FootballDataAPI (la que está mejorada con smart estimation)
         logger.info("🔍 Probando FootballDataAPI...")
         try:
@@ -1850,7 +1865,7 @@ def webhook_diagnose():
 
         # Resumen
         results["summary"] = {
-            "total_apis": 5,
+            "total_apis": 6,
             "working_apis": sum(1 for api in results["api_tests"].values() if "FUNCIONA" in api["status"]),
             "api_with_data": sum(1 for api in results["api_tests"].values() if api.get("matches_found", 0) > 0),
             "recommendation": ""
