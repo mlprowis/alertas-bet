@@ -1216,7 +1216,7 @@ def procesar_partidos_en_vivo():
                     logger.info(f"🔔 ALERTA REAL: {match_data['match_name']} (Value: {poisson.value}%)")
                     registrar_alerta(match_data['match_name'])
 
-                    if bot:
+                    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
                         alert_data = AlertData(
                             partido=match_data["match_name"],
                             liga=match_data["league"],
@@ -1304,7 +1304,7 @@ def webhook_match():
             logger.info(f"🔔 ALERTA GENERADA: {match_name} (Value: {poisson.value}%)")
 
             # Enviar a Telegram si está configurado
-            if bot:
+            if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
                 alert_data = AlertData(
                     partido=match_name,
                     liga=league,
@@ -1461,7 +1461,7 @@ def webhook_test():
             logger.info(f"🔔 ALERTA GENERADA EN TEST: Test Match (Value: {poisson.value}%)")
 
             # Enviar a Telegram si está configurado
-            if bot:
+            if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
                 alert_data = AlertData(
                     partido=test_data["match_name"],
                     liga=test_data["league"],
@@ -1783,7 +1783,7 @@ def webhook_best_match():
 
             registrar_alerta(match_name)
 
-            if bot:
+            if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
                 alert_data = AlertData(
                     partido=best_match['match_data']["match_name"],
                     liga=best_match['match_data']["league"],
