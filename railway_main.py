@@ -37,6 +37,7 @@ TELEGRAM_TOKEN = "8099120388:AAF2QCqrbvOh7CvGg8VWVUjloQKJOOCuQ7g"
 TELEGRAM_CHAT_ID = "2410007"
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
 RAPIDAPI_HOST = "free-api-live-football-data.p.rapidapi.com"
+FOOTBALL_DATA_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "5dfce60aeb3d4004b9ef7ffb29f106f7")
 SPORTMONK_API_KEY = os.getenv("SPORTMONK_API_KEY", "THM6jVCaaP9b4Isr0cJUMAuCPTVEfU8DgNxyELpsPxPVgT3Y5ww5N6HNFZ5T")
 
 logger.info(f"🚀 Configuración Railway: PORT={PORT}")
@@ -489,7 +490,7 @@ class FootballDataAPI:
     """Integración con football-data.org (API oficial, plan gratuito confiable)"""
 
     BASE_URL = "https://api.football-data.org/v4"
-    API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "")
+    API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "5dfce60aeb3d4004b9ef7ffb29f106f7")
 
     @staticmethod
     def inicializar():
