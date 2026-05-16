@@ -267,6 +267,108 @@ async def enviar_alerta_telegram(alert: AlertData) -> bool:
         logger.error(f"✗ Error inesperado: {e}")
         return False
 
+# ============ SOFASCORE API - Cobertura global 500+ ligas (PRIMARIO) ============
+class SofaScoreAPI:
+    """SofaScore API - Cobertura global de 500+ ligas en vivo, sin rate limits estrictos"""
+
+    BASE_URL = "https://api.sofascore.com/api/v1"
+
+    @staticmethod
+    def obtener_partidos_en_vivo() -> list:
+        """Obtiene partidos EN VIVO de SofaScore (500+ ligas globales)"""
+        try:
+            url = f"{SofaScoreAPI.BASE_URL}/sport/football/events/last"
+            logger.info(f"🔍 Intentando SofaScore: {url}")
+            response = requests.get(url, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                events = data.get("events", [])
+
+                # Filtrar solo partidos en vivo (status = "inprogress")
+                live_matches = [e for e in events if e.get("status") == "inprogress"]
+
+                if live_matches and len(live_matches) > 0:
+                    logger.info(f"✅ SofaScore: {len(live_matches)} partidos EN VIVO encontrados")
+                    return live_matches
+                else:
+                    logger.info(f"⚠️ SofaScore: Sin partidos en vivo en este momento")
+                    return []
+            else:
+                logger.warning(f"⚠️ SofaScore: Status {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error en SofaScore: {str(e)[:100]}")
+            return []
+
+    @staticmethod
+    def procesar_partido_real(match: dict) -> Dict[str, Any]:
+        """Transforma datos de SofaScore al formato de AlertasBet"""
+        try:
+            if not isinstance(match, dict):
+                return None
+
+            # Equipos
+            home = match.get("homeTeam", {})
+            away = match.get("awayTeam", {})
+            match_name = f"{home.get('name', 'Team A')} vs {away.get('name', 'Team B')}"
+
+            # Score actual
+            score_obj = match.get("score", {})
+            home_goals = score_obj.get("current", {}).get("home", 0) if isinstance(score_obj, dict) else 0
+            away_goals = score_obj.get("current", {}).get("away", 0) if isinstance(score_obj, dict) else 0
+            score = f"{home_goals}-{away_goals}"
+
+            # Minuto (SofaScore proporciona time actual)
+            minute = match.get("time", 45)
+            if not isinstance(minute, int) or minute < 0:
+                minute = 45
+
+            # Liga/Torneo
+            tournament = match.get("tournament", {})
+            league_name = tournament.get("name", "Unknown League") if isinstance(tournament, dict) else "Unknown League"
+
+            # Estadísticas
+            stats = match.get("statistics", {})
+            shots_home = stats.get("shotsTotal", {}).get("home", 6) if isinstance(stats.get("shotsTotal"), dict) else 6
+            shots_away = stats.get("shotsTotal", {}).get("away", 4) if isinstance(stats.get("shotsTotal"), dict) else 4
+            shots_on_target_home = stats.get("shotsOnTarget", {}).get("home", 3) if isinstance(stats.get("shotsOnTarget"), dict) else 3
+            shots_on_target_away = stats.get("shotsOnTarget", {}).get("away", 1) if isinstance(stats.get("shotsOnTarget"), dict) else 1
+
+            # Posesión
+            possession_obj = stats.get("possession", {})
+            possession_home = possession_obj.get("home", 50) if isinstance(possession_obj, dict) else 50
+
+            # xG (si está disponible)
+            xg_obj = stats.get("expectedGoals", {})
+            xg_home = xg_obj.get("home", 1.5) if isinstance(xg_obj, dict) else 1.5
+            xg_away = xg_obj.get("away", 1.2) if isinstance(xg_obj, dict) else 1.2
+
+            # Cuota (estimar basada en score)
+            goals_total = home_goals + away_goals
+            odds_over_1 = 1.9 if goals_total < 3 else 1.5
+
+            return {
+                "match_name": match_name,
+                "league": league_name,
+                "minute": minute,
+                "score": score,
+                "xg_home": max(0.1, float(xg_home)),
+                "xg_away": max(0.1, float(xg_away)),
+                "shots_home": int(shots_home),
+                "shots_away": int(shots_away),
+                "shots_on_target_home": int(shots_on_target_home),
+                "shots_on_target_away": int(shots_on_target_away),
+                "possession_home": float(possession_home),
+                "possession_away": 100.0 - float(possession_home),
+                "odds_over_1": float(odds_over_1),
+                "match_id": match.get("id")
+            }
+        except Exception as e:
+            logger.error(f"Error procesando partido SofaScore: {e}")
+            return None
+
 # ============ FOOTBALL-DATA.ORG API - Datos EN VIVO reales (PLAN GRATUITO GENEROSO) ============
 class FootballDataAPI:
     """Integración con football-data.org (API oficial, plan gratuito confiable)"""
@@ -504,33 +606,302 @@ class LiveFootballAPI:
             logger.error(f"Error procesando partido: {e}")
             return None
 
+# ============ API-FOOTBALL (RAPID API ALTERNATIVO) - 600+ ligas ============
+class APIFootballRapid:
+    """Integración con API-Football (RapidAPI) - Cobertura 600+ ligas"""
+
+    BASE_URL = "https://v3.football.api-sports.io"
+    API_KEY = os.getenv("API_SPORTS_KEY", "")  # Diferente a RAPIDAPI_KEY
+    HEADERS = None
+
+    @staticmethod
+    def inicializar():
+        """Inicializa headers con API key de api-sports.io"""
+        APIFootballRapid.HEADERS = {
+            "x-rapidapi-key": APIFootballRapid.API_KEY,
+            "x-rapidapi-host": "v3.football.api-sports.io"
+        }
+
+    @staticmethod
+    def obtener_partidos_en_vivo() -> list:
+        """Obtiene partidos en vivo de API-Football"""
+        if not APIFootballRapid.API_KEY:
+            logger.debug("⚠️ API_SPORTS_KEY no configurado, omitiendo API-Football")
+            return []
+
+        try:
+            url = f"{APIFootballRapid.BASE_URL}/fixtures?live=true"
+            logger.info(f"🔍 Intentando API-Football: /fixtures?live=true")
+            response = requests.get(url, headers=APIFootballRapid.HEADERS, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                matches = data.get("response", [])
+
+                if matches and len(matches) > 0:
+                    logger.info(f"✅ API-Football: {len(matches)} partidos EN VIVO encontrados")
+                    return matches
+                else:
+                    logger.info(f"⚠️ API-Football: Sin partidos en vivo en este momento")
+                    return []
+            else:
+                logger.warning(f"⚠️ API-Football: Status {response.status_code}")
+                if response.status_code == 429:
+                    logger.warning("   Rate limited - esperar")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error en API-Football: {str(e)[:100]}")
+            return []
+
+    @staticmethod
+    def procesar_partido_real(match: dict) -> Dict[str, Any]:
+        """Transforma datos de API-Football al formato de AlertasBet"""
+        try:
+            if not isinstance(match, dict):
+                return None
+
+            # Información del partido
+            fixture = match.get("fixture", {})
+            teams = match.get("teams", {})
+            home_team = teams.get("home", {})
+            away_team = teams.get("away", {})
+            match_name = f"{home_team.get('name', 'Team A')} vs {away_team.get('name', 'Team B')}"
+
+            # Score actual
+            goals = match.get("goals", {})
+            home_goals = goals.get("home", 0) if isinstance(goals, dict) else 0
+            away_goals = goals.get("away", 0) if isinstance(goals, dict) else 0
+            score = f"{home_goals}-{away_goals}"
+
+            # Minuto
+            status = fixture.get("status", {})
+            minute = status.get("elapsed", 45) if isinstance(status, dict) else 45
+            if not isinstance(minute, int) or minute < 0:
+                minute = 45
+
+            # Liga
+            league = match.get("league", {})
+            league_name = league.get("name", "Unknown League") if isinstance(league, dict) else "Unknown League"
+
+            # Estadísticas
+            stats = match.get("statistics", [])
+            home_stats = stats[0] if len(stats) > 0 else {}
+            away_stats = stats[1] if len(stats) > 1 else {}
+
+            shots_home = home_stats.get("shots", {}).get("total", 6) if isinstance(home_stats.get("shots"), dict) else 6
+            shots_away = away_stats.get("shots", {}).get("total", 4) if isinstance(away_stats.get("shots"), dict) else 4
+            shots_on_target_home = home_stats.get("shots", {}).get("on", 3) if isinstance(home_stats.get("shots"), dict) else 3
+            shots_on_target_away = away_stats.get("shots", {}).get("on", 1) if isinstance(away_stats.get("shots"), dict) else 1
+
+            possession_home = home_stats.get("possession", 50) if isinstance(home_stats, dict) else 50
+
+            # xG (si está disponible)
+            xg_home = home_stats.get("expectedGoals", 1.5) if isinstance(home_stats, dict) else 1.5
+            xg_away = away_stats.get("expectedGoals", 1.2) if isinstance(away_stats, dict) else 1.2
+
+            # Cuota
+            goals_total = home_goals + away_goals
+            odds_over_1 = 1.9 if goals_total < 3 else 1.5
+
+            return {
+                "match_name": match_name,
+                "league": league_name,
+                "minute": minute,
+                "score": score,
+                "xg_home": max(0.1, float(xg_home)),
+                "xg_away": max(0.1, float(xg_away)),
+                "shots_home": int(shots_home),
+                "shots_away": int(shots_away),
+                "shots_on_target_home": int(shots_on_target_home),
+                "shots_on_target_away": int(shots_on_target_away),
+                "possession_home": float(possession_home),
+                "possession_away": 100.0 - float(possession_home),
+                "odds_over_1": float(odds_over_1),
+                "match_id": fixture.get("id")
+            }
+        except Exception as e:
+            logger.error(f"Error procesando partido API-Football: {e}")
+            return None
+
+# ============ FLASHSCORE API - Cobertura Bet365 ============
+class FlashScoreAPI:
+    """FlashScore API - Cobertura similar a Bet365, partidos populares"""
+
+    BASE_URL = "https://api.flashcore.io/api/v1"
+    API_KEY = os.getenv("FLASHSCORE_KEY", "")
+
+    @staticmethod
+    def obtener_partidos_en_vivo() -> list:
+        """Obtiene partidos EN VIVO de FlashScore"""
+        try:
+            url = f"{FlashScoreAPI.BASE_URL}/matches/live"
+            logger.info(f"🔍 Intentando FlashScore: /matches/live")
+
+            headers = {"Accept": "application/json"}
+            if FlashScoreAPI.API_KEY:
+                headers["X-Auth-Token"] = FlashScoreAPI.API_KEY
+
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                matches = data.get("matches", []) if isinstance(data, dict) else []
+
+                if matches and len(matches) > 0:
+                    logger.info(f"✅ FlashScore: {len(matches)} partidos EN VIVO encontrados")
+                    return matches
+                else:
+                    logger.info(f"⚠️ FlashScore: Sin partidos en vivo en este momento")
+                    return []
+            else:
+                logger.warning(f"⚠️ FlashScore: Status {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error en FlashScore: {str(e)[:100]}")
+            return []
+
+    @staticmethod
+    def procesar_partido_real(match: dict) -> Dict[str, Any]:
+        """Transforma datos de FlashScore al formato de AlertasBet"""
+        try:
+            if not isinstance(match, dict):
+                return None
+
+            # Equipos
+            home_team = match.get("homeTeam", {})
+            away_team = match.get("awayTeam", {})
+            match_name = f"{home_team.get('name', 'Team A')} vs {away_team.get('name', 'Team B')}"
+
+            # Score
+            score_obj = match.get("score", {})
+            home_goals = score_obj.get("home", 0) if isinstance(score_obj, dict) else 0
+            away_goals = score_obj.get("away", 0) if isinstance(score_obj, dict) else 0
+            score = f"{home_goals}-{away_goals}"
+
+            # Minuto
+            minute = match.get("minute", 45)
+            if not isinstance(minute, int) or minute < 0:
+                minute = 45
+
+            # Liga
+            tournament = match.get("tournament", {})
+            league_name = tournament.get("name", "Unknown League") if isinstance(tournament, dict) else "Unknown League"
+
+            # Estadísticas
+            stats = match.get("statistics", {})
+            shots_home = stats.get("shots_home", 6) if isinstance(stats, dict) else 6
+            shots_away = stats.get("shots_away", 4) if isinstance(stats, dict) else 4
+            shots_on_target_home = stats.get("shots_on_target_home", 3) if isinstance(stats, dict) else 3
+            shots_on_target_away = stats.get("shots_on_target_away", 1) if isinstance(stats, dict) else 1
+            possession_home = stats.get("possession_home", 50) if isinstance(stats, dict) else 50
+
+            # xG
+            xg_home = stats.get("expected_goals_home", 1.5) if isinstance(stats, dict) else 1.5
+            xg_away = stats.get("expected_goals_away", 1.2) if isinstance(stats, dict) else 1.2
+
+            # Cuota
+            goals_total = home_goals + away_goals
+            odds_over_1 = 1.9 if goals_total < 3 else 1.5
+
+            return {
+                "match_name": match_name,
+                "league": league_name,
+                "minute": minute,
+                "score": score,
+                "xg_home": max(0.1, float(xg_home)),
+                "xg_away": max(0.1, float(xg_away)),
+                "shots_home": int(shots_home),
+                "shots_away": int(shots_away),
+                "shots_on_target_home": int(shots_on_target_home),
+                "shots_on_target_away": int(shots_on_target_away),
+                "possession_home": float(possession_home),
+                "possession_away": 100.0 - float(possession_home),
+                "odds_over_1": float(odds_over_1),
+                "match_id": match.get("id")
+            }
+        except Exception as e:
+            logger.error(f"Error procesando partido FlashScore: {e}")
+            return None
+
 def procesar_partidos_en_vivo():
-    """Obtiene y procesa partidos en vivo REALES de RapidAPI (2100+ ligas)"""
+    """Obtiene y procesa partidos en vivo REALES de múltiples APIs (cobertura global)"""
     try:
-        logger.info("⚽ Obteniendo partidos en vivo REALES de RapidAPI (2100+ ligas)...")
+        logger.info("⚽ Obteniendo partidos en vivo REALES de múltiples APIs...")
 
-        # Obtener partidos de RapidAPI primero (tiene 2100+ ligas y key configurada)
-        matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
+        # Cascada de 5 APIs - intenta la siguiente si la anterior no retorna partidos
+        matches_api = None
+        api_source = None
 
-        # Si RapidAPI no tiene, intentar football-data.org como fallback
+        # 1️⃣ SofaScore (cobertura global 500+ ligas)
+        matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
+        if matches_api:
+            api_source = "SofaScore"
+            logger.info(f"📊 Usando SofaScore: {len(matches_api)} partidos")
+
+        # 2️⃣ API-Football RapidAPI (600+ ligas, si tiene API_SPORTS_KEY)
         if not matches_api:
-            logger.info("ℹ️ RapidAPI sin partidos, intentando football-data.org...")
+            matches_api = APIFootballRapid.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "API-Football"
+                logger.info(f"📊 Usando API-Football: {len(matches_api)} partidos")
+
+        # 3️⃣ FlashScore (Bet365-like coverage)
+        if not matches_api:
+            matches_api = FlashScoreAPI.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "FlashScore"
+                logger.info(f"📊 Usando FlashScore: {len(matches_api)} partidos")
+
+        # 4️⃣ LiveFootballAPI (RapidAPI original - 2100+ ligas)
+        if not matches_api:
+            matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "RapidAPI"
+                logger.info(f"📊 Usando RapidAPI: {len(matches_api)} partidos")
+
+        # 5️⃣ FootballDataAPI (football-data.org - fallback)
+        if not matches_api:
             matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "football-data.org"
+                logger.info(f"📊 Usando football-data.org: {len(matches_api)} partidos")
 
         if not matches_api:
-            logger.warning("⚠️ No hay partidos en vivo REALES en este momento")
+            logger.warning("⚠️ No hay partidos en vivo REALES en este momento (todas las APIs sin datos)")
             return
 
-        logger.info(f"📊 Procesando {len(matches_api)} partidos en vivo...")
+        logger.info(f"📊 Procesando {len(matches_api)} partidos en vivo desde {api_source}...")
 
         # Procesar cada partido
         for match_api in matches_api:
             try:
                 if isinstance(match_api, dict):
-                    # Intentar primero con LiveFootballAPI (RapidAPI)
-                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                    # Intentar procesar con todas las APIs en cascada
+                    match_data = None
 
-                    # Si falla, intentar con FootballDataAPI
+                    # Intentar con la API que entregó los datos primero
+                    if api_source == "SofaScore":
+                        match_data = SofaScoreAPI.procesar_partido_real(match_api)
+                    elif api_source == "API-Football":
+                        match_data = APIFootballRapid.procesar_partido_real(match_api)
+                    elif api_source == "FlashScore":
+                        match_data = FlashScoreAPI.procesar_partido_real(match_api)
+                    elif api_source == "RapidAPI":
+                        match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                    elif api_source == "football-data.org":
+                        match_data = FootballDataAPI.procesar_partido_real(match_api)
+
+                    # Fallback a otras APIs si falla la principal
+                    if not match_data:
+                        match_data = SofaScoreAPI.procesar_partido_real(match_api)
+                    if not match_data:
+                        match_data = APIFootballRapid.procesar_partido_real(match_api)
+                    if not match_data:
+                        match_data = FlashScoreAPI.procesar_partido_real(match_api)
+                    if not match_data:
+                        match_data = LiveFootballAPI.procesar_partido_real(match_api)
                     if not match_data:
                         match_data = FootballDataAPI.procesar_partido_real(match_api)
 
@@ -776,23 +1147,50 @@ def webhook_test():
 
 @app.route('/webhook/best-match', methods=['POST', 'GET'])
 def webhook_best_match():
-    """Endpoint para obtener y enviar el MEJOR partido en vivo AHORA (SOLO REALES)"""
+    """Endpoint para obtener y enviar el MEJOR partido en vivo AHORA (cobertura global)"""
     try:
-        logger.info("🏆 Buscando el MEJOR partido EN VIVO REAL ahora (RapidAPI 2100+ ligas)...")
+        logger.info("🏆 Buscando el MEJOR partido EN VIVO REAL ahora (cobertura global de múltiples APIs)...")
 
-        # Intentar RapidAPI primero (2100+ ligas, key configurada)
-        matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
+        # Cascada de 5 APIs - intenta la siguiente si la anterior no retorna partidos
+        matches_api = None
+        api_source = None
 
-        # Si RapidAPI no tiene, intentar football-data.org
+        # 1️⃣ SofaScore
+        matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
+        if matches_api:
+            api_source = "SofaScore"
+
+        # 2️⃣ API-Football
         if not matches_api:
-            logger.info("ℹ️ RapidAPI sin partidos, intentando football-data.org...")
+            matches_api = APIFootballRapid.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "API-Football"
+
+        # 3️⃣ FlashScore
+        if not matches_api:
+            matches_api = FlashScoreAPI.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "FlashScore"
+
+        # 4️⃣ RapidAPI
+        if not matches_api:
+            matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "RapidAPI"
+
+        # 5️⃣ football-data.org
+        if not matches_api:
             matches_api = FootballDataAPI.obtener_partidos_en_vivo()
+            if matches_api:
+                api_source = "football-data.org"
 
         if not matches_api:
             return jsonify({
                 "status": "no_matches",
-                "message": "No hay partidos EN VIVO REALES en este momento. Intentando de nuevo en 5 minutos..."
+                "message": "No hay partidos EN VIVO REALES en este momento (todas las APIs sin datos). Intentando de nuevo en 5 minutos..."
             }), 200
+
+        logger.info(f"📊 Buscando mejor partido en {len(matches_api)} partidos de {api_source}...")
 
         # Procesar todos y encontrar el mejor (value más alto)
         best_match = None
@@ -800,10 +1198,29 @@ def webhook_best_match():
 
         for match_api in matches_api:
             try:
-                # Procesar con LiveFootballAPI primero (RapidAPI)
-                match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                # Procesar con la API que entregó los datos primero
+                match_data = None
 
-                # Si falla, intentar con FootballDataAPI
+                if api_source == "SofaScore":
+                    match_data = SofaScoreAPI.procesar_partido_real(match_api)
+                elif api_source == "API-Football":
+                    match_data = APIFootballRapid.procesar_partido_real(match_api)
+                elif api_source == "FlashScore":
+                    match_data = FlashScoreAPI.procesar_partido_real(match_api)
+                elif api_source == "RapidAPI":
+                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
+                elif api_source == "football-data.org":
+                    match_data = FootballDataAPI.procesar_partido_real(match_api)
+
+                # Fallback a otras APIs si falla la principal
+                if not match_data:
+                    match_data = SofaScoreAPI.procesar_partido_real(match_api)
+                if not match_data:
+                    match_data = APIFootballRapid.procesar_partido_real(match_api)
+                if not match_data:
+                    match_data = FlashScoreAPI.procesar_partido_real(match_api)
+                if not match_data:
+                    match_data = LiveFootballAPI.procesar_partido_real(match_api)
                 if not match_data:
                     match_data = FootballDataAPI.procesar_partido_real(match_api)
 
