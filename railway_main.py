@@ -18,8 +18,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 from flask import Flask, request, jsonify
-from telegram import Bot
-from telegram.error import TelegramError
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 
