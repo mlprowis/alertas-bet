@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ============ CONFIGURACIÓN ============
 PORT = int(os.getenv("PORT", 5000))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "2410007")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
 RAPIDAPI_HOST = "free-api-live-football-data.p.rapidapi.com"
 
