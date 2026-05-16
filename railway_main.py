@@ -21,14 +21,7 @@ from flask import Flask, request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 
-# Web scraping con Playwright para datos EN VIVO reales
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    logger_temp = logging.getLogger("startup")
-    logger_temp.warning("⚠️ Playwright no instalado. Usar: pip install playwright")
+# Playwright removido - usando SportMonk API como fuente primaria
 
 # ============ LOGGING ============
 logging.basicConfig(
@@ -1015,122 +1008,6 @@ def estimar_estadisticas_inteligentes(minute: int, goals_total: int) -> Dict[str
         }
 
 # ============ FLASHSCORE WEB SCRAPER - Datos EN VIVO reales con Playwright ============
-class FlashScoreScraper:
-    """Web scraper inteligente de FlashScore para obtener partidos EN VIVO reales"""
-
-    @staticmethod
-    def obtener_partidos_en_vivo() -> list:
-        """Scrappea partidos en vivo de flashscore.com usando Playwright"""
-        if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("⚠️ Playwright no disponible, saltando scraper")
-            return []
-
-        try:
-            logger.info("🔍 Scrapeando FlashScore para partidos EN VIVO...")
-
-            matches = []
-
-            with sync_playwright() as p:
-                # Usar navegador headless
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page(viewport={"width": 1280, "height": 720})
-
-                # Ir a página de partidos en vivo
-                page.goto("https://www.flashscore.com/", timeout=15000)
-
-                # Esperar a que carguen los partidos (máx 10 segundos)
-                try:
-                    page.wait_for_selector("div[class*='event']", timeout=10000)
-                except:
-                    logger.debug("No se encontraron partidos en vivo en FlashScore")
-                    browser.close()
-                    return []
-
-                # Esperar un poco más para que carguen datos dinámicos
-                page.wait_for_timeout(2000)
-
-                # Extraer partidos
-                match_elements = page.query_selector_all("div[class*='event'][class*='live']")
-
-                logger.debug(f"Encontrados {len(match_elements)} elementos de partidos")
-
-                for element in match_elements[:5]:  # Máximo 5 partidos para no sobrecargar
-                    try:
-                        # Extraer datos
-                        home_team_el = element.query_selector("span[class*='homeTeam']")
-                        away_team_el = element.query_selector("span[class*='awayTeam']")
-                        score_el = element.query_selector("span[class*='score']")
-                        time_el = element.query_selector("span[class*='time']")
-                        league_el = element.query_selector("span[class*='league']")
-
-                        home_team = home_team_el.text_content() if home_team_el else "Team A"
-                        away_team = away_team_el.text_content() if away_team_el else "Team B"
-                        score_text = score_el.text_content() if score_el else "0-0"
-                        time_text = time_el.text_content() if time_el else "45"
-                        league = league_el.text_content() if league_el else "Unknown"
-
-                        # Parsear score
-                        try:
-                            score_parts = score_text.strip().split("-")
-                            home_goals = int(score_parts[0])
-                            away_goals = int(score_parts[1])
-                        except:
-                            home_goals = 0
-                            away_goals = 0
-
-                        # Parsear minuto
-                        try:
-                            minute = int(time_text.replace("+", "").replace("'", ""))
-                        except:
-                            minute = 45
-
-                        # Usar estadísticas INTELIGENTES basadas en minuto y goles
-                        total_goals = home_goals + away_goals
-                        stats_inteligentes = estimar_estadisticas_inteligentes(minute, total_goals, league.strip())
-
-                        # Estimar cuota basada en goles proyectados
-                        goal_rate = total_goals / max(1, minute) if minute > 0 else 0.5
-                        projected_goals = goal_rate * 90
-                        odds_over_1 = 1.9 + (0.6 if projected_goals < 2.5 else -0.3 if projected_goals > 3.5 else 0.0)
-                        odds_over_1 = max(1.05, min(2.50, odds_over_1))
-
-                        partido = {
-                            "match_name": f"{home_team.strip()} vs {away_team.strip()}",
-                            "league": league.strip(),
-                            "minute": minute,
-                            "score": f"{home_goals}-{away_goals}",
-                            "xg_home": stats_inteligentes["xg_home"],
-                            "xg_away": stats_inteligentes["xg_away"],
-                            "shots_home": stats_inteligentes["shots_home"],
-                            "shots_away": stats_inteligentes["shots_away"],
-                            "shots_on_target_home": stats_inteligentes["shots_on_target_home"],
-                            "shots_on_target_away": stats_inteligentes["shots_on_target_away"],
-                            "possession_home": stats_inteligentes["possession_home"],
-                            "possession_away": 100 - stats_inteligentes["possession_home"],
-                            "odds_over_1": odds_over_1,
-                            "source": "FlashScore (REAL)",
-                            "estimated": True
-                        }
-
-                        matches.append(partido)
-
-                    except Exception as e:
-                        logger.debug(f"Error extrayendo partido: {e}")
-                        continue
-
-                browser.close()
-
-            if matches:
-                logger.info(f"✅ FlashScore scraper: {len(matches)} partidos EN VIVO extraídos")
-            else:
-                logger.debug("⚠️ FlashScore: Sin partidos encontrados")
-
-            return matches
-
-        except Exception as e:
-            logger.error(f"Error en FlashScore scraper: {str(e)[:100]}")
-            return []
-
 def generar_partidos_simulados_realistas():
     """Genera partidos realistas simulados como fallback cuando no hay APIs disponibles"""
     # Equipos y ligas populares
@@ -1199,15 +1076,7 @@ def procesar_partidos_en_vivo():
             api_source = "SportMonk"
             logger.info(f"📊 Usando SportMonk: {len(matches_api)} partidos EN VIVO")
 
-        # 1️⃣ FlashScore Web Scraper (SEGUNDO - datos reales EN VIVO con Playwright)
-        if not matches_api:
-            if PLAYWRIGHT_AVAILABLE:
-                matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
-                if matches_api:
-                    api_source = "FlashScore (Scraper)"
-                    logger.info(f"📊 Usando FlashScore Scraper: {len(matches_api)} partidos EN VIVO")
-
-        # 3️⃣ SofaScore (cobertura global 500+ ligas)
+        # 2️⃣ SofaScore (cobertura global 500+ ligas)
         if not matches_api:
             matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
@@ -1460,7 +1329,7 @@ def webhook_force_alert():
         logger.info("🔥 FORZANDO ALERTA TEST (bypass anti-duplicados)...")
 
         # Obtener mejor partido
-        matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
+        matches_api = SportMonkAPI.obtener_partidos_en_vivo()
 
         if not matches_api:
             return jsonify({"status": "error", "message": "No hay partidos EN VIVO"}), 200
@@ -1694,14 +1563,7 @@ def webhook_best_match():
         if matches_api:
             api_source = "SportMonk"
 
-        # 1️⃣ FlashScore Web Scraper (SEGUNDO - datos reales EN VIVO)
-        if not matches_api:
-            if PLAYWRIGHT_AVAILABLE:
-                matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
-                if matches_api:
-                    api_source = "FlashScore (Scraper)"
-
-        # 2️⃣ SofaScore
+        # 1️⃣ SofaScore
         if not matches_api:
             matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
