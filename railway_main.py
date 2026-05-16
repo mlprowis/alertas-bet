@@ -1336,6 +1336,74 @@ def webhook_match():
         logger.error(f"Error en webhook_match: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/webhook/force-alert', methods=['GET'])
+def webhook_force_alert():
+    """Fuerza el envío de una alerta SIN respetar anti-duplicados (solo para testing)"""
+    try:
+        logger.info("🔥 FORZANDO ALERTA TEST (bypass anti-duplicados)...")
+
+        # Obtener mejor partido
+        matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
+
+        if not matches_api:
+            return jsonify({"status": "error", "message": "No hay partidos EN VIVO"}), 200
+
+        # Obtener primero
+        match_api = matches_api[0]
+        match_data = match_api
+
+        # Procesar
+        metricas = SportAnalyzer.calcular_metricas(match_data)
+        poisson = PoissonModel.evaluar_partido(
+            metricas["xg_total"],
+            metricas["tiros_totales"],
+            match_data["minute"],
+            match_data["odds_over_1"]
+        )
+
+        score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
+
+        # Enviar a Telegram SIN RESPETAR ANTI-DUPLICADOS
+        if bot:
+            alert_data = AlertData(
+                partido=match_data["match_name"],
+                liga=match_data["league"],
+                minuto=match_data["minute"],
+                marcador=match_data["score"],
+                level=level,
+                score_final=score_alerta,
+                momentum=metricas["momentum"],
+                xg_total=metricas["xg_total"],
+                tiros=metricas["tiros_totales"],
+                tiros_puerta=metricas.get("tiros_puerta", 0),
+                dominancia=metricas["dominancia"],
+                eficiencia=metricas["eficiencia"],
+                lambda_final=poisson.lambda_final,
+                p_gol=poisson.p_gol,
+                p_mercado=poisson.p_mercado,
+                value=poisson.value,
+                recomendacion=poisson.recomendacion,
+                timestamp=datetime.now().isoformat()
+            )
+            asyncio.run(enviar_alerta_telegram(alert_data))
+            logger.info(f"✅ ALERTA FORZADA ENVIADA A TELEGRAM: {match_data['match_name']}")
+
+        return jsonify({
+            "status": "ok",
+            "message": "✅ ALERTA ENVIADA A TELEGRAM (forzada, sin anti-duplicados)",
+            "match": match_data["match_name"],
+            "league": match_data["league"],
+            "score": match_data["score"],
+            "minute": match_data["minute"],
+            "value": poisson.value,
+            "recommendation": poisson.recomendacion,
+            "level": level
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en webhook_force_alert: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/webhook/test', methods=['POST', 'GET'])
 def webhook_test():
     """Endpoint de test para verificar que la app funciona y envía alertas a Telegram"""
