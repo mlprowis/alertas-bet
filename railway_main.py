@@ -19,6 +19,7 @@ from enum import Enum
 
 from flask import Flask, request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
+from telegram import Bot
 import requests
 from bs4 import BeautifulSoup
 
@@ -382,7 +383,7 @@ class SportMonkAPI:
 
             # Estadísticas estimadas
             total_goals = home_goals + away_goals
-            stats = estimar_estadisticas_inteligentes(minute, total_goals, league_name)
+            stats = estimar_estadisticas_inteligentes(minute, total_goals)
 
             # Cuota
             goal_rate = total_goals / max(1, minute) if minute > 0 else 0.5
@@ -820,62 +821,6 @@ class APIFootballRapid:
             logger.error(f"Error en API-Football: {str(e)[:100]}")
             return []
 
-# ============ DETECTOR DE ANOMALÍAS - Partidos sin goles cuando deberían tenerlos ============
-def detectar_partido_anomalo(match_data: dict) -> dict:
-    """
-    Detecta si un partido es ANÓMALO:
-    - Sin goles hasta cierto minuto
-    - Pero xG sugiere que DEBERÍA haber goles
-    - ANOMALÍA = OPORTUNIDAD
-    """
-    try:
-        minute = match_data.get("minute", 0)
-        goals = match_data.get("goals_total", 0)
-        xg_total = match_data.get("xg_total", 0)
-
-        # Calcular goles esperados según minuto
-        expected_goals_by_minute = {
-            10: 0.3,   # Min 10: esperado ~0.3 goles
-            20: 0.7,   # Min 20: esperado ~0.7 goles
-            30: 1.2,   # Min 30: esperado ~1.2 goles
-            45: 1.8,   # Min 45: esperado ~1.8 goles
-            60: 2.5,   # Min 60: esperado ~2.5 goles
-            75: 3.2,   # Min 75: esperado ~3.2 goles
-            90: 4.0    # Min 90: esperado ~4 goles
-        }
-
-        # Interpolar esperados basados en minuto
-        expected_goals = 0
-        if minute <= 10:
-            expected_goals = (minute / 10) * 0.3
-        elif minute <= 20:
-            expected_goals = 0.3 + ((minute - 10) / 10) * 0.4
-        elif minute <= 30:
-            expected_goals = 0.7 + ((minute - 20) / 10) * 0.5
-        elif minute <= 45:
-            expected_goals = 1.2 + ((minute - 30) / 15) * 0.6
-        elif minute <= 60:
-            expected_goals = 1.8 + ((minute - 45) / 15) * 0.7
-        elif minute <= 75:
-            expected_goals = 2.5 + ((minute - 60) / 15) * 0.7
-        else:
-            expected_goals = 3.2 + ((minute - 75) / 15) * 0.8
-
-        # Detectar anomalía
-        anomalia_ratio = expected_goals / max(goals, 0.1)  # Cuántos goles "faltan"
-        es_anomalo = (goals == 0 and minute >= 15 and expected_goals >= 0.5) or \
-                     (goals < expected_goals * 0.5 and minute >= 20)  # Menos de 50% de lo esperado
-
-        return {
-            "es_anomalo": es_anomalo,
-            "anomalia_ratio": anomalia_ratio,
-            "expected_goals": expected_goals,
-            "severity": "ALTA" if anomalia_ratio > 5 else "MEDIA" if anomalia_ratio > 2 else "BAJA"
-        }
-    except Exception as e:
-        logger.debug(f"Error detectando anomalía: {e}")
-        return {"es_anomalo": False, "anomalia_ratio": 0}
-
     @staticmethod
     def procesar_partido_real(match: dict) -> Dict[str, Any]:
         """Transforma datos de API-Football al formato de AlertasBet"""
@@ -945,6 +890,62 @@ def detectar_partido_anomalo(match_data: dict) -> dict:
         except Exception as e:
             logger.error(f"Error procesando partido API-Football: {e}")
             return None
+
+# ============ DETECTOR DE ANOMALÍAS - Partidos sin goles cuando deberían tenerlos ============
+def detectar_partido_anomalo(match_data: dict) -> dict:
+    """
+    Detecta si un partido es ANÓMALO:
+    - Sin goles hasta cierto minuto
+    - Pero xG sugiere que DEBERÍA haber goles
+    - ANOMALÍA = OPORTUNIDAD
+    """
+    try:
+        minute = match_data.get("minute", 0)
+        goals = match_data.get("goals_total", 0)
+        xg_total = match_data.get("xg_total", 0)
+
+        # Calcular goles esperados según minuto
+        expected_goals_by_minute = {
+            10: 0.3,   # Min 10: esperado ~0.3 goles
+            20: 0.7,   # Min 20: esperado ~0.7 goles
+            30: 1.2,   # Min 30: esperado ~1.2 goles
+            45: 1.8,   # Min 45: esperado ~1.8 goles
+            60: 2.5,   # Min 60: esperado ~2.5 goles
+            75: 3.2,   # Min 75: esperado ~3.2 goles
+            90: 4.0    # Min 90: esperado ~4 goles
+        }
+
+        # Interpolar esperados basados en minuto
+        expected_goals = 0
+        if minute <= 10:
+            expected_goals = (minute / 10) * 0.3
+        elif minute <= 20:
+            expected_goals = 0.3 + ((minute - 10) / 10) * 0.4
+        elif minute <= 30:
+            expected_goals = 0.7 + ((minute - 20) / 10) * 0.5
+        elif minute <= 45:
+            expected_goals = 1.2 + ((minute - 30) / 15) * 0.6
+        elif minute <= 60:
+            expected_goals = 1.8 + ((minute - 45) / 15) * 0.7
+        elif minute <= 75:
+            expected_goals = 2.5 + ((minute - 60) / 15) * 0.7
+        else:
+            expected_goals = 3.2 + ((minute - 75) / 15) * 0.8
+
+        # Detectar anomalía
+        anomalia_ratio = expected_goals / max(goals, 0.1)  # Cuántos goles "faltan"
+        es_anomalo = (goals == 0 and minute >= 15 and expected_goals >= 0.5) or \
+                     (goals < expected_goals * 0.5 and minute >= 20)  # Menos de 50% de lo esperado
+
+        return {
+            "es_anomalo": es_anomalo,
+            "anomalia_ratio": anomalia_ratio,
+            "expected_goals": expected_goals,
+            "severity": "ALTA" if anomalia_ratio > 5 else "MEDIA" if anomalia_ratio > 2 else "BAJA"
+        }
+    except Exception as e:
+        logger.debug(f"Error detectando anomalía: {e}")
+        return {"es_anomalo": False, "anomalia_ratio": 0}
 
 # ============ FLASHSCORE API - Cobertura Bet365 ============
 class FlashScoreAPI:
@@ -1105,34 +1106,91 @@ class FlashScoreScraper:
 
     @staticmethod
     def obtener_partidos_en_vivo() -> list:
-        """Scrappea partidos en vivo de flashscore usando BeautifulSoup"""
+        """Scrappea partidos EN VIVO de flashscore.com usando BeautifulSoup"""
         try:
             logger.info("🔍 Scrapeando FlashScore para partidos EN VIVO...")
 
-            # Usar API de flashscore sin autenticación
-            url = "https://www.flashscore.com/api/livescores/"
+            url = "https://www.flashscore.com/"
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
 
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15)
 
             if response.status_code == 200:
-                data = response.json()
-                matches = data.get("matches", []) if isinstance(data, dict) else []
+                soup = BeautifulSoup(response.content, 'html.parser')
+                matches = []
+
+                # Buscar todos los elementos de partidos
+                # FlashScore usa estructuras específicas para partidos EN VIVO
+                match_elements = soup.find_all('div', class_=lambda x: x and 'event' in x.lower())
+
+                for element in match_elements[:30]:  # Max 30 partidos
+                    try:
+                        # Extraer información del partido
+                        teams_elem = element.find_all(class_=lambda x: x and 'team' in x.lower())
+                        score_elem = element.find(class_=lambda x: x and 'score' in x.lower())
+                        time_elem = element.find(class_=lambda x: x and ('time' in x.lower() or 'minute' in x.lower()))
+
+                        if teams_elem and len(teams_elem) >= 2:
+                            home_team = teams_elem[0].get_text(strip=True) if teams_elem else "Team A"
+                            away_team = teams_elem[1].get_text(strip=True) if len(teams_elem) > 1 else "Team B"
+                            score = score_elem.get_text(strip=True) if score_elem else "0-0"
+                            minute = time_elem.get_text(strip=True) if time_elem else "45'"
+
+                            # Limpiar datos
+                            minute_num = int(''.join(filter(str.isdigit, minute)) or 45)
+                            score_parts = score.split('-')
+                            home_goals = int(score_parts[0]) if len(score_parts) > 0 and score_parts[0].isdigit() else 0
+                            away_goals = int(score_parts[1]) if len(score_parts) > 1 and score_parts[1].isdigit() else 0
+
+                            if minute_num >= 0:  # Solo partidos EN VIVO
+                                # Usar estimaciones inteligentes basadas en minuto y goles actuales
+                                goals_total = home_goals + away_goals
+                                stats_estimadas = estimar_estadisticas_inteligentes(minute_num, goals_total)
+
+                                # Calcular odds basado en score actual
+                                goal_rate = goals_total / max(1, minute_num) if minute_num > 0 else 0
+                                projected_goals = goal_rate * 90
+                                odds_over_1 = 1.9 + (0.6 if projected_goals < 2.5 else -0.3)
+                                odds_over_1 = max(1.05, min(2.50, odds_over_1))
+
+                                partido = {
+                                    "match_name": f"{home_team} vs {away_team}",
+                                    "league": "Unknown League",
+                                    "minute": minute_num,
+                                    "score": f"{home_goals}-{away_goals}",
+                                    "xg_home": stats_estimadas["xg_home"],
+                                    "xg_away": stats_estimadas["xg_away"],
+                                    "shots_home": stats_estimadas["shots_home"],
+                                    "shots_away": stats_estimadas["shots_away"],
+                                    "shots_on_target_home": stats_estimadas["shots_on_target_home"],
+                                    "shots_on_target_away": stats_estimadas["shots_on_target_away"],
+                                    "possession_home": stats_estimadas["possession_home"],
+                                    "possession_away": 100 - stats_estimadas["possession_home"],
+                                    "goals_total": goals_total,
+                                    "odds_over_1": odds_over_1,
+                                    "source": "FlashScore (Web Scraper)"
+                                }
+
+                                matches.append(partido)  # ARREGLADO: agregar SIEMPRE, no solo si ya hay matches
+
+                    except Exception as e:
+                        logger.debug(f"Error procesando elemento: {str(e)[:50]}")
+                        continue
 
                 if matches:
                     logger.info(f"✅ FlashScore: {len(matches)} partidos EN VIVO encontrados")
-                    return matches[:20]  # Top 20 partidos
+                    return matches
                 else:
-                    logger.info("⚠️ FlashScore: Sin partidos en vivo")
+                    logger.info("⚠️ FlashScore: Sin partidos en vivo encontrados")
                     return []
             else:
                 logger.warning(f"⚠️ FlashScore: Status {response.status_code}")
                 return []
 
         except Exception as e:
-            logger.debug(f"FlashScore scraper: {str(e)[:80]}")
+            logger.error(f"Error en FlashScore scraper: {str(e)[:100]}")
             return []
 
 def generar_partidos_simulados_realistas():
