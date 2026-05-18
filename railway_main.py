@@ -1526,7 +1526,7 @@ def health():
         "status": "ALIVE-20260516-FORCE-REDEPLOY",
         "service": "AlertasBet Webhook",
         "timestamp": datetime.now().isoformat(),
-        "version": "2.0.2-DATA-VALIDATION",
+        "version": "2.0.3-FULL-VALIDATION",
         "telegram_token_set": bool(TELEGRAM_TOKEN),
         "telegram_chat_id_set": bool(TELEGRAM_CHAT_ID),
         "port": PORT
