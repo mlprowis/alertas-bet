@@ -1894,11 +1894,18 @@ def webhook_best_match():
             if matches_api:
                 api_source = "football-data.org"
 
-        # FALLBACK: Si no hay datos reales, usar datos realistas simulados
+        # FALLBACK DESHABILITADO: Sistema requiere datos REALES
         if not matches_api:
-            logger.warning("⚠️ Ninguna API retorna datos - Usando fallback realista")
-            matches_api = generar_partidos_simulados_realistas()
-            api_source = "SIMULADO (fallback realista)"
+            logger.error("❌ NINGUNA API RETORNA DATOS EN VIVO - Sistema requiere API real")
+            logger.warning("⚠️ Fallback DESHABILITADO - No se generarán alertas sin datos REALES")
+            # Comentado: generar_partidos_simulados_realistas() ya no se usa
+            return jsonify({
+                "status": "no_real_data",
+                "message": "❌ NO HAY DATOS EN VIVO DISPONIBLES DE APIS REALES",
+                "api_status": "Todas las APIs retornan 0 partidos",
+                "note": "Sistema requiere datos reales - sin alertas de datos simulados",
+                "recommendation": "Intenta más tarde cuando haya partidos activos en alguna API real"
+            }), 200
 
         if not matches_api:
             logger.error("❌ NO HAY PARTIDOS EN VIVO - Todas las APIs retornan 0 partidos")
@@ -1974,10 +1981,32 @@ def webhook_best_match():
                 logger.error(f"Error procesando partido: {e}")
                 continue
 
-        # Si encontró un partido, enviarlo (threshold bajo)
+        # Si encontró un partido, validar y enviar
         if best_match and best_value >= 2.0:  # Threshold bajo para mostrar
+            # NUEVO: Validar que los datos sean realistas y reales
+            es_valido, razon_rechazo = validar_datos_partido(best_match['match_data'], api_source)
+            if not es_valido:
+                logger.warning(f"⏭️ MEJOR PARTIDO RECHAZADO: {best_match['match_data']['match_name']} - {razon_rechazo}")
+                return jsonify({
+                    "status": "best_match_invalid",
+                    "message": f"Mejor partido rechazado por validación",
+                    "reason": razon_rechazo,
+                    "best_value": best_value
+                }), 200
+
+            # NUEVO: Limitar VALUE a rango realista
+            if best_value > 30.0:
+                logger.warning(f"⚠️ VALUE SOSPECHOSAMENTE ALTO: {best_match['match_data']['match_name']} VALUE={best_value:.1f}% - Rechazado")
+                return jsonify({
+                    "status": "value_too_high",
+                    "message": f"Valor sospechosamente alto",
+                    "value": best_value,
+                    "max_allowed": 30.0,
+                    "note": "Umbral de realismo: máximo 30%"
+                }), 200
+
             match_name = best_match['match_data']['match_name']
-            logger.info(f"🏆 MEJOR PARTIDO: {match_name} (Value: {best_value}%)")
+            logger.info(f"🏆 MEJOR PARTIDO VALIDADO: {match_name} (Value: {best_value}%)")
 
             # Verificar si ya fue alertado recientemente
             if fue_alertado_recientemente(match_name):
