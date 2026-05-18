@@ -116,6 +116,21 @@ class AlertData:
     recomendacion: str
     timestamp: str
 
+# ============ HELPER FUNCTIONS ============
+def extraer_goles_del_score(score_str: str) -> int:
+    """Extrae el total de goles de un string de score (ej: '1-0' -> 1)"""
+    try:
+        if not score_str or "-" not in str(score_str):
+            return 0
+        partes = str(score_str).split("-")
+        if len(partes) >= 2:
+            home = int(partes[0].strip())
+            away = int(partes[1].strip())
+            return home + away
+    except Exception:
+        pass
+    return 0
+
 # ============ POISSON MODEL ============
 class PoissonModel:
     """Modelo Poisson para predicción de goles"""
@@ -168,7 +183,7 @@ class PoissonModel:
     @classmethod
     def evaluar_partido(cls, xg_total: float, tiros_totales: int, minuto: int,
                        cuota_over: float, momentum: float = 1.0, eficiencia: float = 1.0,
-                       dominancia: float = 1.0, aceleracion: float = 1.0) -> PoissonResult:
+                       dominancia: float = 1.0, aceleracion: float = 1.0, goles_actuales: int = 0) -> PoissonResult:
         """Evaluación completa del partido"""
         lambda_base = cls.calcular_lambda_base(xg_total, tiros_totales)
         lambda_con_factores = cls.aplicar_factores(lambda_base, momentum, eficiencia, dominancia, aceleracion)
@@ -177,11 +192,25 @@ class PoissonModel:
         p_mercado = 1 / cuota_over if cuota_over > 0 else 0.5
         value = cls.calcular_value(p_gol, p_mercado)
 
-        recomendacion = (
-            "Over 1.0 Asiático ⭐⭐" if value >= 0.15
-            else "Over 1.0 Asiático" if value >= 0.08
-            else "Evaluar con cuidado"
-        )
+        # Determinar nivel de Over basado en goles ya marcados
+        # Si hay 0 goles -> Over 1.0
+        # Si hay 1 gol -> Over 1.5
+        # Si hay 2 goles -> Over 2.5
+        # Si hay 3+ goles -> Over 3.5
+        if goles_actuales >= 3:
+            over_level = "3.5"
+            stars = "⭐⭐" if value >= 0.15 else "⭐" if value >= 0.08 else ""
+        elif goles_actuales == 2:
+            over_level = "2.5"
+            stars = "⭐⭐" if value >= 0.15 else "⭐" if value >= 0.08 else ""
+        elif goles_actuales == 1:
+            over_level = "1.5"
+            stars = "⭐⭐" if value >= 0.15 else "⭐" if value >= 0.08 else ""
+        else:  # goles_actuales == 0
+            over_level = "1.0"
+            stars = "⭐⭐" if value >= 0.15 else "⭐" if value >= 0.08 else ""
+
+        recomendacion = f"Over {over_level} Asiático {stars}".strip() if stars else "Evaluar con cuidado"
 
         return PoissonResult(
             round(lambda_final, 3),
@@ -596,9 +625,31 @@ class FootballDataAPI:
             away_goals = score_data.get("fullTime", {}).get("away", 0) if isinstance(score_data, dict) else 0
             score = f"{home_goals}-{away_goals}"
 
-            # Minuto del partido
-            minute = match_data.get("utcDate", "").count(":") if match_data.get("utcDate") else 45
-            # Si no hay minuto, usar 45 como default
+            # Minuto del partido: football-data.org no proporciona elapsed time directo
+            # Intentar obtener del status, sino calcular desde utcDate
+            minute = match_data.get("minute", None)
+            if minute is None:
+                # Intenta obtener del status
+                status = match_data.get("status", "")
+                # Si el status contiene "LIVE" o similar, estimar minuto desde utcDate
+                if status in ["LIVE", "IN_PLAY"]:
+                    try:
+                        from datetime import datetime
+                        utc_date_str = match_data.get("utcDate", "")
+                        if utc_date_str:
+                            # Parsear formato ISO: "2026-05-18T15:30:00Z"
+                            match_start = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
+                            elapsed = (datetime.now(match_start.tzinfo) - match_start).total_seconds() / 60
+                            minute = max(0, min(int(elapsed), 90))  # Limitar a 0-90
+                        else:
+                            minute = 45  # Default: mitad del partido
+                    except Exception as e:
+                        logger.debug(f"Error calculando minuto de utcDate: {e}")
+                        minute = 45
+                else:
+                    minute = 45
+
+            # Validar que sea int válido
             if not isinstance(minute, int) or minute < 0:
                 minute = 45
 
@@ -1456,11 +1507,13 @@ def procesar_partidos_en_vivo():
 
                 # Procesar con análisis Poisson
                 metricas = SportAnalyzer.calcular_metricas(match_data)
+                goles_totales = extraer_goles_del_score(match_data.get("score", "0-0"))
                 poisson = PoissonModel.evaluar_partido(
                     metricas["xg_total"],
                     metricas["tiros_totales"],
                     match_data["minute"],
-                    match_data["odds_over_1"]
+                    match_data["odds_over_1"],
+                    goles_actuales=goles_totales
                 )
 
                 score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
@@ -1555,6 +1608,7 @@ def webhook_match():
         metricas = SportAnalyzer.calcular_metricas(data)
 
         # Evaluar con Poisson
+        goles_totales = extraer_goles_del_score(score)
         poisson = PoissonModel.evaluar_partido(
             metricas["xg_total"],
             metricas["tiros_totales"],
@@ -1563,7 +1617,8 @@ def webhook_match():
             momentum=metricas.get("momentum", 1.0),
             eficiencia=metricas.get("eficiencia", 1.0),
             dominancia=metricas.get("dominancia", 1.0),
-            aceleracion=metricas.get("aceleracion", 1.0)
+            aceleracion=metricas.get("aceleracion", 1.0),
+            goles_actuales=goles_totales
         )
 
         # Calcular score y nivel
@@ -1641,11 +1696,13 @@ def webhook_force_alert():
 
         # Procesar
         metricas = SportAnalyzer.calcular_metricas(match_data)
+        goles_totales = extraer_goles_del_score(match_data.get("score", "0-0"))
         poisson = PoissonModel.evaluar_partido(
             metricas["xg_total"],
             metricas["tiros_totales"],
             match_data["minute"],
-            match_data["odds_over_1"]
+            match_data["odds_over_1"],
+            goles_actuales=goles_totales
         )
 
         score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
@@ -1775,11 +1832,13 @@ def webhook_test_matches():
         for match in test_matches:
             try:
                 metricas = SportAnalyzer.calcular_metricas(match)
+                goles_totales = extraer_goles_del_score(match.get("score", "0-0"))
                 poisson = PoissonModel.evaluar_partido(
                     metricas["xg_total"],
                     metricas["tiros_totales"],
                     match["minute"],
-                    match["odds_over_1"]
+                    match["odds_over_1"],
+                    goles_actuales=goles_totales
                 )
 
                 score_alerta, level = SportAnalyzer.calcular_score_alerta(poisson, metricas)
@@ -1960,11 +2019,13 @@ def webhook_best_match():
                     continue
 
                 metricas = SportAnalyzer.calcular_metricas(match_data)
+                goles_totales = extraer_goles_del_score(match_data.get("score", "0-0"))
                 poisson = PoissonModel.evaluar_partido(
                     metricas["xg_total"],
                     metricas["tiros_totales"],
                     match_data["minute"],
-                    match_data["odds_over_1"]
+                    match_data["odds_over_1"],
+                    goles_actuales=goles_totales
                 )
 
                 if poisson.value > best_value:
