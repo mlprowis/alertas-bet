@@ -204,10 +204,12 @@ class SportAnalyzer:
             xg_total = xg_home + xg_away
             tiros_totales = int(data.get("shots_home", 0)) + int(data.get("shots_away", 0))
             tiros_puerta = int(data.get("shots_on_target_home", 0)) + int(data.get("shots_on_target_away", 0))
+            # Dominancia: máxima posesión (como porcentaje, no decimal)
+            # Ej: si posesión es 60%, dominancia = 60 (no 0.60)
             dominancia = max(
                 float(data.get("possession_home", 50)),
                 float(data.get("possession_away", 50))
-            ) / 100
+            )  # NO dividir por 100 - mantener como porcentaje
 
             return {
                 "xg_total": xg_total,
@@ -224,7 +226,7 @@ class SportAnalyzer:
                 "xg_total": 0.5,
                 "tiros_totales": 0,
                 "tiros_puerta": 0,
-                "dominancia": 0.5,
+                "dominancia": 50,  # 50% como valor por defecto (no 0.50)
                 "momentum": 1.0,
                 "eficiencia": 1.0,
                 "aceleracion": 1.0,
@@ -267,7 +269,7 @@ def enviar_alerta_telegram(alert: AlertData) -> bool:
   Momentum: {alert.momentum:.2f}
   xG Total: {alert.xg_total:.2f}
   Tiros: {alert.tiros} (en puerta: {alert.tiros_puerta})
-  Dominancia: {alert.dominancia:.1f}%
+  Dominancia: {alert.dominancia:.0f}%
 
 🔬 MODELO POISSON:
   Lambda: {alert.lambda_final:.3f}
@@ -1193,6 +1195,68 @@ class FlashScoreScraper:
             logger.error(f"Error en FlashScore scraper: {str(e)[:100]}")
             return []
 
+def validar_datos_partido(match_data: dict, api_source: str) -> tuple[bool, str]:
+    """
+    Valida que los datos del partido sean realistas y de una API real.
+    Retorna (es_válido, razón_rechazo)
+    """
+    try:
+        # 1. Si es SIMULADO, rechazar
+        if "SIMULADO" in api_source or "fallback" in api_source.lower():
+            return False, "Datos simulados - requiere API real"
+
+        # 2. Verificar nombre real (no "Team A vs Team B", no "Unknown League")
+        match_name = match_data.get("match_name", "")
+        league = match_data.get("league", "")
+
+        if "Team A" in match_name or "Team B" in match_name:
+            return False, "Nombres placeholder (Team A/B)"
+
+        if "Unknown League" in league:
+            return False, "Liga desconocida"
+
+        # 3. Validar minuto realista (0-90)
+        minute = match_data.get("minute", 0)
+        if not isinstance(minute, int) or not (0 <= minute <= 90):
+            return False, f"Minuto irreal: {minute}"
+
+        # 4. Rechazar si minuto == 45 exactamente (descanso)
+        if minute == 45:
+            return False, "Minuto 45 - descanso (momento no útil)"
+
+        # 5. Validar posesión realista (10-90%)
+        possession = match_data.get("possession_home", 50)
+        if not isinstance(possession, (int, float)):
+            return False, "Posesión inválida"
+        if not (10 <= possession <= 90):
+            return False, f"Posesión irreal: {possession}%"
+
+        # 6. Validar xG realista (0.1-5.0)
+        xg_home = match_data.get("xg_home", 0)
+        xg_away = match_data.get("xg_away", 0)
+        xg_total = xg_home + xg_away
+
+        if not isinstance(xg_home, (int, float)) or not isinstance(xg_away, (int, float)):
+            return False, "xG inválido"
+
+        if not (0.1 <= xg_total <= 5.0):
+            return False, f"xG total irreal: {xg_total:.2f}"
+
+        # 7. Validar odds realistas (1.3-3.5)
+        odds = match_data.get("odds_over_1", 1.9)
+        if not isinstance(odds, (int, float)):
+            return False, "Odds inválida"
+
+        if not (1.3 <= odds <= 3.5):
+            return False, f"Odds irreal: {odds}"
+
+        # Todos los checks pasaron
+        return True, "Válido"
+
+    except Exception as e:
+        logger.debug(f"Error en validación: {e}")
+        return False, f"Error en validación: {str(e)[:50]}"
+
 def generar_partidos_simulados_realistas():
     """Genera partidos realistas simulados como fallback cuando no hay APIs disponibles"""
     # Equipos y ligas - incluyendo ligas menores como en tu captura
@@ -1266,66 +1330,84 @@ def procesar_partidos_en_vivo():
         api_source = None
 
         # 0️⃣ SportMonk API (PRIMERO - Datos EN VIVO confiables)
+        logger.info("🔍 Intentando SportMonk API...")
         matches_api = SportMonkAPI.obtener_partidos_en_vivo()
         if matches_api:
             api_source = "SportMonk"
-            logger.info(f"📊 Usando SportMonk: {len(matches_api)} partidos EN VIVO")
+            logger.info(f"✅ SportMonk: {len(matches_api)} partidos EN VIVO encontrados")
+        else:
+            logger.info("⚠️ SportMonk: 0 partidos (intentando siguiente API...)")
 
-        # 1️⃣ FlashScore Web Scraper (cobertura total - incluyendo ligas menores)
-        if not matches_api:
-            matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
-            if matches_api:
-                api_source = "FlashScore (Scraper)"
-                logger.info(f"📊 Usando FlashScore Scraper: {len(matches_api)} partidos EN VIVO")
+        # 1️⃣ FlashScore Web Scraper - DESHABILITADO (selectores CSS desactualizados, HTML dinámico)
+        # El scraper NO funciona porque FlashScore usa JavaScript para renderizar contenido
+        # requests.get() solo obtiene HTML estático sin JS ejecutado
+        # if not matches_api:
+        #     matches_api = FlashScoreScraper.obtener_partidos_en_vivo()
+        #     if matches_api:
+        #         api_source = "FlashScore (Scraper)"
+        #         logger.info(f"📊 Usando FlashScore Scraper: {len(matches_api)} partidos EN VIVO")
 
         # 2️⃣ SofaScore (cobertura global 500+ ligas)
         if not matches_api:
+            logger.info("🔍 Intentando SofaScore API...")
             matches_api = SofaScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "SofaScore"
-                logger.info(f"📊 Usando SofaScore: {len(matches_api)} partidos")
+                logger.info(f"✅ SofaScore: {len(matches_api)} partidos encontrados")
+            else:
+                logger.info("⚠️ SofaScore: 0 partidos (intentando siguiente API...)")
 
         # 4️⃣ API-Football RapidAPI (600+ ligas, si tiene API_SPORTS_KEY)
         if not matches_api:
+            logger.info("🔍 Intentando API-Football...")
             matches_api = APIFootballRapid.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "API-Football"
-                logger.info(f"📊 Usando API-Football: {len(matches_api)} partidos")
+                logger.info(f"✅ API-Football: {len(matches_api)} partidos encontrados")
+            else:
+                logger.info("⚠️ API-Football: 0 partidos (intentando siguiente API...)")
 
         # 5️⃣ FlashScore (Bet365-like coverage)
         if not matches_api:
+            logger.info("🔍 Intentando FlashScore API...")
             matches_api = FlashScoreAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "FlashScore"
-                logger.info(f"📊 Usando FlashScore: {len(matches_api)} partidos")
+                logger.info(f"✅ FlashScore: {len(matches_api)} partidos encontrados")
+            else:
+                logger.info("⚠️ FlashScore: 0 partidos (intentando siguiente API...)")
 
         # 6️⃣ LiveFootballAPI (RapidAPI original - 2100+ ligas)
         if not matches_api:
+            logger.info("🔍 Intentando RapidAPI (2100+ ligas)...")
             matches_api = LiveFootballAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "RapidAPI"
-                logger.info(f"📊 Usando RapidAPI: {len(matches_api)} partidos")
+                logger.info(f"✅ RapidAPI: {len(matches_api)} partidos encontrados")
+            else:
+                logger.info("⚠️ RapidAPI: 0 partidos (intentando siguiente API...)")
 
         # 7️⃣ FootballDataAPI (football-data.org - fallback)
         if not matches_api:
+            logger.info("🔍 Intentando football-data.org...")
             matches_api = FootballDataAPI.obtener_partidos_en_vivo()
             if matches_api:
                 api_source = "football-data.org"
-                logger.info(f"📊 Usando football-data.org: {len(matches_api)} partidos")
+                logger.info(f"✅ football-data.org: {len(matches_api)} partidos encontrados")
+            else:
+                logger.info("⚠️ football-data.org: 0 partidos (intentando siguiente...)")
 
-        # FALLBACK: Si no hay datos reales, usar datos realistas simulados
+        # FALLBACK DESHABILITADO: Sistema requiere datos REALES
         if not matches_api:
-            logger.warning("⚠️ Ninguna API retorna datos EN VIVO - Usando fallback realista")
-            matches_api = generar_partidos_simulados_realistas()
-            api_source = "FALLBACK (Datos realistas simulados)"
-
-        if not matches_api:
-            logger.error("❌ NO HAY PARTIDOS - Fallback vacío también")
+            logger.error("❌ NINGUNA API RETORNA DATOS EN VIVO - Sistema requiere API real")
+            logger.warning("⚠️ Fallback DESHABILITADO - No se generarán alertas sin datos REALES")
+            # Comentado: generar_partidos_simulados_realistas() ya no se usa
             return jsonify({
-                "status": "no_matches",
-                "message": "❌ NO HAY PARTIDOS EN VIVO EN ESTE MOMENTO",
+                "status": "no_real_data",
+                "message": "❌ NO HAY DATOS EN VIVO DISPONIBLES DE APIS REALES",
                 "api_status": "Todas las APIs retornan 0 partidos",
-                "recommendation": "Intenta más tarde cuando haya partidos activos"
+                "note": "Sistema requiere datos reales - sin alertas de datos simulados",
+                "recommendation": "Intenta más tarde cuando haya partidos activos en alguna API real"
             }), 200
 
         logger.info(f"📊 Procesando {len(matches_api)} partidos en vivo desde {api_source}...")
@@ -1385,6 +1467,17 @@ def procesar_partidos_en_vivo():
 
                 # Si value >= 8.0, enviar alerta (pero no si ya fue enviada hace poco)
                 if poisson.value >= 8.0:
+                    # NUEVO: Validar que los datos sean realistas y reales
+                    es_valido, razon_rechazo = validar_datos_partido(match_data, api_source)
+                    if not es_valido:
+                        logger.debug(f"⏭️ RECHAZADO: {match_data['match_name']} - {razon_rechazo}")
+                        continue
+
+                    # NUEVO: Limitar VALUE a rango realista (máximo 30%)
+                    if poisson.value > 30.0:
+                        logger.warning(f"⚠️ VALUE SOSPECHOSAMENTE ALTO: {match_data['match_name']} VALUE={poisson.value:.1f}% - Rechazado")
+                        continue
+
                     if fue_alertado_recientemente(match_data['match_name']):
                         logger.debug(f"⏭️ SALTAR ALERTA: {match_data['match_name']} fue alertado hace poco")
                         continue
